@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>8-Bit Automatron</title>
+<style>
+  body {
+    font-family: monospace;
+    background:#222;
+    color:#eee;
+    margin:0;
+    padding:0;
+    height:100vh;
+    width:100vw;
+    display:flex;
+    flex-direction:column;
+  }
+  #toolbar-top, #toolbar-bottom {
+    padding:10px;
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    justify-content:center;
+    align-items:center;
+    background:#111;
+    z-index:2;
+  }
+  #toolbar-bottom { padding-top:0; }
+
+  canvas {
+    image-rendering: pixelated;
+    border:2px solid #666;
+    background:transparent;
+    cursor:crosshair;
+  }
+
+  .control {
+    background:#333;
+    padding:6px 10px;
+    border-radius:4px;
+    color:#fff;
+    border:1px solid #555;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    min-height:36px;
+    height:36px;
+    min-width:160px;
+    box-sizing:border-box;
+    font-size:0.9rem;
+  }
+  .control input,
+  .control select {
+    font-family:inherit;
+    font-size:0.9rem;
+    margin-left:6px;
+    height:24px;
+  }
+
+  .button-control {
+    cursor:pointer;
+    background:#333;
+    border:1px solid #555;
+    border-radius:4px;
+    padding:6px 10px;
+    color:#fff;
+    min-height:36px;
+    min-width:160px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .button-control:hover { background:#444; }
+  .button-control:active { background:#0a0; border-color:#0f0; }
+
+  .swatch {
+    width:36px;
+    height:24px;
+    border:1px solid #444;
+    cursor:pointer;
+  }
+
+  #canvasWrapper {
+    flex:1;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    padding:20px;
+    box-sizing:border-box;
+  }
+
+  /* Color picker */
+  #customColorPicker {
+    position:fixed;
+    background:#333;
+    padding:12px;
+    border:1px solid #666;
+    border-radius:6px;
+    display:none;
+    z-index:10;
+  }
+  #svSquare { width:200px; height:200px; cursor:pointer; }
+  #hueSlider { width:20px; height:200px; cursor:pointer; margin-left:10px; }
+  #opacitySlider { width:200px; margin-top:8px; }
+  #svCursor {
+    position:absolute;
+    width:10px;
+    height:10px;
+    border:2px solid #fff;
+    border-radius:50%;
+    pointer-events:none;
+    transform:translate(-5px,-5px);
+  }
+  #hueCursor {
+    position:absolute;
+    width:26px;
+    height:4px;
+    background:#fff;
+    pointer-events:none;
+    transform:translateX(-3px);
+  }
+  #pickerButtons { display:flex; gap:10px; margin-top:10px; }
+  #historyRow { display:flex; gap:6px; margin-top:8px; }
+  .historySwatch {
+    width:24px;
+    height:24px;
+    border:1px solid #666;
+    cursor:pointer;
+  }
+</style>
+</head>
+<body>
+<h2 style="margin:8px 0; text-align:center; width:100%;">8-Bit Automatron</h2>
+
+<div id="toolbar-top">
+  <div class="control">Pixel Size: <input type="number" id="pixelSize" value="200" min="1" max="1024" style="width:4em;"></div>
+  <div class="control">Aspect Ratio:
+    <select id="aspect">
+      <option value="1:1">1:1</option>
+      <option value="4:3">4:3</option>
+      <option value="3:4">3:4</option>
+      <option value="16:9">16:9</option>
+      <option value="4:1">Banner</option>
+    </select>
+  </div>
+  <div class="control">Background:
+    <div id="bgSwatch" class="swatch" style="background:#000000; margin-left:6px;"></div>
+    <input type="hidden" id="bgColorInput" value="#000000">
+    <label style="margin-left:8px;"><input type="checkbox" id="transparentBg" checked> Transparent</label>
+  </div>
+  <div class="control">Pen Size: <input id="penSize" type="number" value="4" min="1" max="20" style="width:4em;"></div>
+  <div class="control">Pen Color:
+    <div id="penSwatch" class="swatch" style="background:#ffffff; margin-left:6px;"></div>
+    <input type="hidden" id="penColorInput" value="#ffffff">
+  </div>
+</div>
+
+<div id="toolbar-bottom">
+  <button id="undoBtn" class="button-control">Undo</button>
+  <button id="exportBtn" class="button-control">Export PNG</button>
+  <button id="resetBtn" class="button-control">Reset</button>
+</div>
+
+<div id="canvasWrapper">
+  <canvas id="canvas"></canvas>
+</div>
+
+<!-- HSV Color Picker anchored under swatch -->
+<div id="customColorPicker">
+  <div style="display:flex; position:relative;">
+    <div style="position:relative;">
+      <canvas id="svSquare"></canvas>
+      <div id="svCursor"></div>
+    </div>
+    <div style="position:relative; margin-left:10px;">
+      <canvas id="hueSlider"></canvas>
+      <div id="hueCursor"></div>
+    </div>
+  </div>
+
+  <input type="range" id="opacitySlider" min="0" max="1" step="0.01" value="1">
+
+  <div style="margin-top:6px;">Hex: <input id="customHex" type="text" style="width:90px;"></div>
+  <div style="margin-top:6px;">
+    R:<input id="rInput" type="number" min="0" max="255" style="width:4em;">
+    G:<input id="gInput" type="number" min="0" max="255" style="width:4em;">
+    B:<input id="bInput" type="number" min="0" max="255" style="width:4em;">
+  </div>
+
+  <div id="historyRow"></div>
+
+  <div id="pickerButtons">
+    <button id="applyColor" class="button-control" style="min-width:100px;">Apply</button>
+    <button id="cancelColor" class="button-control" style="min-width:100px;">Cancel</button>
+  </div>
+</div>
+
+<script>
+// =====================
+// Canvas + Drawing Core
+// =====================
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+const pixelSizeInput = document.getElementById('pixelSize');
+const aspectSelect = document.getElementById('aspect');
+const bgSwatch = document.getElementById('bgSwatch');
+const bgColorInput = document.getElementById('bgColorInput');
+const transparentToggle = document.getElementById('transparentBg');
+const penSizeInput = document.getElementById('penSize');
+const penSwatch = document.getElementById('penSwatch');
+const penColorInput = document.getElementById('penColorInput');
+
+let baseSize = 200;
+const maxSize = 1024;
+let gridW = baseSize;
+let gridH = baseSize;
+
+let drawing = false;
+let penSize = 4;
+let penColor = '#ffffff';
+let historyStack = [];
+
+function clamp(val,min,max){return Math.max(min,Math.min(max,val));}
+
+function updateCanvasSize(){
+  let v = parseInt(pixelSizeInput.value,10);
+  if (isNaN(v)) v = baseSize;
+  v = clamp(v,1,maxSize);
+  baseSize = v;
+  pixelSizeInput.value = v;
+
+  const [aw,ah] = aspectSelect.value.split(':').map(Number);
+  if (aw >= ah) {
+    gridW = clamp(v,1,maxSize);
+    gridH = clamp(Math.round(v * ah / aw),1,maxSize);
+  } else {
+    gridH = clamp(v,1,maxSize);
+    gridW = clamp(Math.round(v * aw / ah),1,maxSize);
+  }
+
+  canvas.width = gridW;
+  canvas.height = gridH;
+  canvas.style.width = gridW + 'px';
+  canvas.style.height = gridH + 'px';
+}
+
+pixelSizeInput.addEventListener('change', updateCanvasSize);
+aspectSelect.addEventListener('change', updateCanvasSize);
+
+function updateCanvasBackground(){
+  if (transparentToggle.checked) {
+    canvas.style.backgroundColor = 'transparent';
+  } else {
+    canvas.style.backgroundColor = bgColorInput.value;
+  }
+}
+
+transparentToggle.addEventListener('change', updateCanvasBackground);
+
+penSizeInput.addEventListener('change', e => {
+  let v = parseInt(e.target.value,10);
+  if (isNaN(v) || v < 1) v = 1;
+  penSize = v;
+  penSizeInput.value = v;
+});
+
+function saveState(){
+  historyStack.push(canvas.toDataURL());
+  if (historyStack.length > 50) historyStack.shift();
+}
+
+function canvasCoords(e){
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+  return {x,y};
+}
+
+function paint(e){
+  const {x,y} = canvasCoords(e);
+  ctx.fillStyle = penColor;
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  for (let dx = -penSize; dx <= penSize; dx++){
+    for (let dy = -penSize; dy <= penSize; dy++){
+      ctx.fillRect(ix+dx, iy+dy, 1, 1);
+    }
+  }
+}
+
+canvas.addEventListener('mousedown', e => {
+  drawing = true;
+  saveState();          // stroke-level undo
+  paint(e);
+});
+canvas.addEventListener('mousemove', e => {
+  if (drawing) paint(e);
+});
+canvas.addEventListener('mouseup', () => drawing=false);
+canvas.addEventListener('mouseleave', () => drawing=false);
+
+// Undo / Reset / Export
+const undoBtn = document.getElementById('undoBtn');
+const resetBtn = document.getElementById('resetBtn');
+const exportBtn = document.getElementById('exportBtn');
+
+undoBtn.addEventListener('click', () => {
+  if (!historyStack.length) return;
+  const data = historyStack.pop();
+  const img = new Image();
+  img.onload = () => {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(img,0,0);
+  };
+  img.src = data;
+});
+
+resetBtn.addEventListener('click', () => {
+  const msg = "Hold up pixel wizard, this will vaporize your masterpiece into the digital void and give you a fresh, empty canvas. Proceed?";
+  if (!confirm(msg)) return;
+
+  // Hard clear: wipe pixels and history so nothing can be undone back
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  historyStack = [];
+});
+
+exportBtn.addEventListener('click', () => {
+  const exp = document.createElement('canvas');
+  exp.width = canvas.width;
+  exp.height = canvas.height;
+  const ectx = exp.getContext('2d');
+  if (!transparentToggle.checked) {
+    ectx.fillStyle = bgColorInput.value;
+    ectx.fillRect(0,0,exp.width,exp.height);
+  }
+  ectx.drawImage(canvas,0,0);
+  const link = document.createElement('a');
+  link.download = 'design.png';
+  link.href = exp.toDataURL('image/png');
+  link.click();
+});
+
+// ==========================
+// HSV Color Picker subsystem
+// ==========================
+const picker = document.getElementById('customColorPicker');
+const sv = document.getElementById('svSquare');
+const hue = document.getElementById('hueSlider');
+const svCtx = sv.getContext('2d');
+const hueCtx = hue.getContext('2d');
+const svCursor = document.getElementById('svCursor');
+const hueCursor = document.getElementById('hueCursor');
+const opacitySlider = document.getElementById('opacitySlider');
+const customHex = document.getElementById('customHex');
+const rInput = document.getElementById('rInput');
+const gInput = document.getElementById('gInput');
+const bInput = document.getElementById('bInput');
+const applyColor = document.getElementById('applyColor');
+const cancelColor = document.getElementById('cancelColor');
+const historyRow = document.getElementById('historyRow');
+
+sv.width = 200; sv.height = 200;
+hue.width = 20; hue.height = 200;
+
+let hsv = {h:0, s:1, v:1};
+let currentPickerTarget = null; // 'bg' or 'pen'
+let historyColors = [];
+
+function HSVtoRGB(h,s,v){
+  let f = n => {
+    let k = (n + h*6) % 6;
+    return v - v*s*Math.max(Math.min(k,4-k,1),0);
+  };
+  return {
+    r: Math.round(f(5)*255),
+    g: Math.round(f(3)*255),
+    b: Math.round(f(1)*255)
+  };
+}
+
+function RGBtoHSV(r,g,b){
+  r/=255; g/=255; b/=255;
+  const max = Math.max(r,g,b), min = Math.min(r,g,b);
+  const d = max-min;
+  let h;
+  const v = max;
+  const s = max === 0 ? 0 : d/max;
+  if (d === 0) h = 0;
+  else if (max === r) h = ((g-b)/d + (g<b?6:0))/6;
+  else if (max === g) h = ((b-r)/d + 2)/6;
+  else h = ((r-g)/d + 4)/6;
+  return {h,s,v};
+}
+
+function hexToRGB(hex){
+  hex = hex.replace('#','');
+  if (hex.length !== 6) return {r:255,g:255,b:255};
+  return {
+    r: parseInt(hex.slice(0,2),16),
+    g: parseInt(hex.slice(2,4),16),
+    b: parseInt(hex.slice(4,6),16)
+  };
+}
+
+function RGBtoHex(r,g,b){
+  return '#' + [r,g,b].map(v=>{
+    const n = clamp(v,0,255)|0;
+    return n.toString(16).padStart(2,'0');
+  }).join('');
+}
+
+function drawHue(){
+  const grad = hueCtx.createLinearGradient(0,0,0,hue.height);
+  grad.addColorStop(0,'#f00');
+  grad.addColorStop(0.17,'#ff0');
+  grad.addColorStop(0.33,'#0f0');
+  grad.addColorStop(0.5,'#0ff');
+  grad.addColorStop(0.67,'#00f');
+  grad.addColorStop(0.83,'#f0f');
+  grad.addColorStop(1,'#f00');
+  hueCtx.fillStyle = grad;
+  hueCtx.fillRect(0,0,hue.width,hue.height);
+}
+
+function drawSV(){
+  const rgb = HSVtoRGB(hsv.h,1,1);
+  let gradX = svCtx.createLinearGradient(0,0,sv.width,0);
+  gradX.addColorStop(0,'#ffffff');
+  gradX.addColorStop(1,`rgb(${rgb.r},${rgb.g},${rgb.b})`);
+  svCtx.fillStyle = gradX;
+  svCtx.fillRect(0,0,sv.width,sv.height);
+
+  let gradY = svCtx.createLinearGradient(0,0,0,sv.height);
+  gradY.addColorStop(0,'rgba(0,0,0,0)');
+  gradY.addColorStop(1,'#000000');
+  svCtx.fillStyle = gradY;
+  svCtx.fillRect(0,0,sv.width,sv.height);
+}
+
+function updatePickerFields(){
+  const rgb = HSVtoRGB(hsv.h,hsv.s,hsv.v);
+  customHex.value = RGBtoHex(rgb.r,rgb.g,rgb.b);
+  rInput.value = rgb.r;
+  gInput.value = rgb.g;
+  bInput.value = rgb.b;
+
+  // cursor positions
+  const x = hsv.s * sv.width;
+  const y = (1 - hsv.v) * sv.height;
+  const svRect = sv.getBoundingClientRect();
+  svCursor.style.left = (svRect.left + x) + 'px';
+  svCursor.style.top  = (svRect.top + y) + 'px';
+
+  const hy = hsv.h * hue.height;
+  const hueRect = hue.getBoundingClientRect();
+  hueCursor.style.left = (hueRect.left + hue.width/2) + 'px';
+  hueCursor.style.top  = (hueRect.top + hy) + 'px';
+}
+
+function openPicker(targetKey, swatch){
+  currentPickerTarget = targetKey; // 'bg' or 'pen'
+  const rect = swatch.getBoundingClientRect();
+  picker.style.left = rect.left + 'px';
+  picker.style.top  = (rect.bottom + 4) + 'px';
+
+  const hex = targetKey === 'bg' ? bgColorInput.value : penColorInput.value;
+  const rgb = hexToRGB(hex);
+  hsv = RGBtoHSV(rgb.r,rgb.g,rgb.b);
+  drawHue();
+  drawSV();
+  updatePickerFields();
+  picker.style.display = 'block';
+}
+
+function closePicker(){ picker.style.display = 'none'; }
+
+function setHSVFromSVEvent(e){
+  const rect = sv.getBoundingClientRect();
+  let x = clamp((e.clientX - rect.left) / rect.width, 0, 1);
+  let y = clamp((e.clientY - rect.top) / rect.height, 0, 1);
+  hsv.s = x;
+  hsv.v = 1 - y;
+  drawSV();
+  updatePickerFields();
+}
+
+function setHSVFromHueEvent(e){
+  const rect = hue.getBoundingClientRect();
+  let y = clamp((e.clientY - rect.top) / rect.height, 0, 1);
+  hsv.h = y;
+  drawHue();
+  drawSV();
+  updatePickerFields();
+}
+
+sv.addEventListener('mousedown', e => {
+  setHSVFromSVEvent(e);
+  function move(ev){ setHSVFromSVEvent(ev); }
+  function up(){ window.removeEventListener('mousemove',move); window.removeEventListener('mouseup',up); }
+  window.addEventListener('mousemove',move);
+  window.addEventListener('mouseup',up);
+});
+
+hue.addEventListener('mousedown', e => {
+  setHSVFromHueEvent(e);
+  function move(ev){ setHSVFromHueEvent(ev); }
+  function up(){ window.removeEventListener('mousemove',move); window.removeEventListener('mouseup',up); }
+  window.addEventListener('mousemove',move);
+  window.addEventListener('mouseup',up);
+});
+
+// Hex and RGB field sync
+customHex.addEventListener('input', () => {
+  let v = customHex.value.trim();
+  if (!v.startsWith('#')) v = '#' + v;
+  if (/^#([0-9A-Fa-f]{6})$/.test(v)){
+    const rgb = hexToRGB(v);
+    hsv = RGBtoHSV(rgb.r,rgb.g,rgb.b);
+    drawHue();
+    drawSV();
+    updatePickerFields();
+  }
+});
+
+[rInput,gInput,bInput].forEach(inp => {
+  inp.addEventListener('change', () => {
+    const r = parseInt(rInput.value,10)||0;
+    const g = parseInt(gInput.value,10)||0;
+    const b = parseInt(bInput.value,10)||0;
+    hsv = RGBtoHSV(r,g,b);
+    drawHue();
+    drawSV();
+    updatePickerFields();
+  });
+});
+
+// History
+function pushHistory(color){
+  historyColors.unshift(color);
+  if (historyColors.length > 8) historyColors.pop();
+  historyRow.innerHTML = '';
+  historyColors.forEach(col => {
+    const d = document.createElement('div');
+    d.className = 'historySwatch';
+    d.style.backgroundColor = col;
+    d.addEventListener('click', () => {
+      const rgb = hexToRGB(col);
+      hsv = RGBtoHSV(rgb.r,rgb.g,rgb.b);
+      drawHue();
+      drawSV();
+      updatePickerFields();
+    });
+    historyRow.appendChild(d);
+  });
+}
+
+applyColor.addEventListener('click', () => {
+  const rgb = HSVtoRGB(hsv.h,hsv.s,hsv.v);
+  const hex = RGBtoHex(rgb.r,rgb.g,rgb.b);
+  pushHistory(hex);
+  if (currentPickerTarget === 'bg'){
+    bgColorInput.value = hex;
+    bgSwatch.style.backgroundColor = hex;
+    updateCanvasBackground();
+  } else if (currentPickerTarget === 'pen'){
+    penColorInput.value = hex;
+    penSwatch.style.backgroundColor = hex;
+    penColor = hex;
+  }
+  closePicker();
+});
+
+cancelColor.addEventListener('click', closePicker);
+
+bgSwatch.addEventListener('click', () => openPicker('bg', bgSwatch));
+penSwatch.addEventListener('click', () => openPicker('pen', penSwatch));
+
+// ============
+// Initialization
+// ============
+updateCanvasSize();
+updateCanvasBackground();
+
+// load default image placeholder centered (optional; here we just clear)
+ctx.clearRect(0,0,canvas.width,canvas.height);
+
+</script>
+</body>
+</html>
