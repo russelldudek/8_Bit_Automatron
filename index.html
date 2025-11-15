@@ -37,7 +37,6 @@
 
   canvas {
     image-rendering: pixelated;
-    border:2px solid #666;
     background:transparent;
     cursor:crosshair;
   }
@@ -97,6 +96,40 @@
     box-sizing:border-box;
   }
 
+  #canvasContainer {
+    position:relative;
+    display:inline-block;
+    border:2px solid #666;
+  }
+
+  #canvasContainer canvas {
+    display:block;
+  }
+
+  #gridOverlay,
+  #cursorOverlay {
+    position:absolute;
+    top:0;
+    left:0;
+    pointer-events:none;
+  }
+
+  #gridOverlay {
+    background-image:
+      linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px);
+    background-repeat:repeat;
+    box-sizing:border-box;
+    z-index:1;
+  }
+
+  #cursorOverlay {
+    border:2px solid #0ff;
+    box-sizing:border-box;
+    z-index:2;
+    background:rgba(0,255,255,0.12);
+  }
+
   /* Color picker */
   #customColorPicker {
     position:fixed;
@@ -151,6 +184,7 @@
       <option value="4:1">Banner</option>
     </select>
   </div>
+  <div class="control">Zoom: <input type="number" id="zoomLevel" value="4" min="1" max="32" style="width:4em;"></div>
   <div class="control">Background:
     <div id="bgSwatch" class="swatch" style="background:#000000; margin-left:6px;"></div>
     <input type="hidden" id="bgColorInput" value="#000000">
@@ -177,7 +211,11 @@
 </div>
 
 <div id="canvasWrapper">
-  <canvas id="canvas"></canvas>
+  <div id="canvasContainer">
+    <canvas id="canvas"></canvas>
+    <div id="gridOverlay"></div>
+    <div id="cursorOverlay"></div>
+  </div>
 </div>
 
 <!-- HSV Color Picker anchored under swatch -->
@@ -229,6 +267,10 @@ const penColorInput = document.getElementById('penColorInput');
 const uploadBtn = document.getElementById('uploadBtn');
 const uploadInput = document.getElementById('uploadInput');
 const bitifyBtn = document.getElementById('bitifyBtn');
+const zoomInput = document.getElementById('zoomLevel');
+const canvasContainer = document.getElementById('canvasContainer');
+const gridOverlayEl = document.getElementById('gridOverlay');
+const cursorOverlayEl = document.getElementById('cursorOverlay');
 
 let baseSize = 200;
 const maxSize = 1024;
@@ -240,6 +282,10 @@ let penSize = 4;
 let penColor = '#ffffff';
 let historyStack = [];
 let uploadedImage = null;
+let zoom = clamp(parseInt(zoomInput.value, 10) || 1, 1, 32);
+zoomInput.value = zoom;
+let cursorX = 0;
+let cursorY = 0;
 
 function clamp(val,min,max){return Math.max(min,Math.min(max,val));}
 
@@ -249,6 +295,52 @@ function clearCanvasContents(){
     ctx.fillStyle = bgColorInput.value;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
+}
+
+function updateCursorOverlayPosition(){
+  if (!cursorOverlayEl) return;
+  const maxX = Math.max(0, canvas.width - 1);
+  const maxY = Math.max(0, canvas.height - 1);
+  cursorX = clamp(cursorX, 0, maxX);
+  cursorY = clamp(cursorY, 0, maxY);
+  cursorOverlayEl.style.transform = `translate(${cursorX * zoom}px, ${cursorY * zoom}px)`;
+}
+
+function setCursorPositionFromCoords(x, y){
+  if (!canvas.width || !canvas.height) return;
+  cursorX = clamp(Math.floor(x), 0, Math.max(0, canvas.width - 1));
+  cursorY = clamp(Math.floor(y), 0, Math.max(0, canvas.height - 1));
+  updateCursorOverlayPosition();
+}
+
+function applyZoom(){
+  const displayWidth = canvas.width * zoom;
+  const displayHeight = canvas.height * zoom;
+  canvas.style.width = displayWidth + 'px';
+  canvas.style.height = displayHeight + 'px';
+  canvasContainer.style.width = displayWidth + 'px';
+  canvasContainer.style.height = displayHeight + 'px';
+
+  if (gridOverlayEl) {
+    gridOverlayEl.style.width = displayWidth + 'px';
+    gridOverlayEl.style.height = displayHeight + 'px';
+    gridOverlayEl.style.backgroundSize = `${zoom}px ${zoom}px`;
+    gridOverlayEl.style.opacity = zoom > 1 ? '1' : '0.3';
+  }
+
+  if (cursorOverlayEl) {
+    cursorOverlayEl.style.width = zoom + 'px';
+    cursorOverlayEl.style.height = zoom + 'px';
+  }
+
+  updateCursorOverlayPosition();
+}
+
+function setZoomLevel(value){
+  const parsed = parseInt(value, 10);
+  zoom = clamp(isNaN(parsed) ? zoom : parsed, 1, 32);
+  zoomInput.value = zoom;
+  applyZoom();
 }
 
 function updateCanvasSize(){
@@ -269,13 +361,15 @@ function updateCanvasSize(){
 
   canvas.width = gridW;
   canvas.height = gridH;
-  canvas.style.width = gridW + 'px';
-  canvas.style.height = gridH + 'px';
   ctx.imageSmoothingEnabled = false;
+  updateCursorOverlayPosition();
+  applyZoom();
 }
 
 pixelSizeInput.addEventListener('change', updateCanvasSize);
 aspectSelect.addEventListener('change', updateCanvasSize);
+zoomInput.addEventListener('change', e => setZoomLevel(e.target.value));
+zoomInput.addEventListener('input', e => setZoomLevel(e.target.value));
 
 function updateCanvasBackground(){
   if (transparentToggle.checked) {
@@ -360,28 +454,104 @@ function canvasCoords(e){
   return {x,y};
 }
 
-function paint(e){
-  const {x,y} = canvasCoords(e);
+function paintAtCoords(x, y){
   ctx.fillStyle = penColor;
   const ix = Math.floor(x);
   const iy = Math.floor(y);
   for (let dx = -penSize; dx <= penSize; dx++){
     for (let dy = -penSize; dy <= penSize; dy++){
-      ctx.fillRect(ix+dx, iy+dy, 1, 1);
+      ctx.fillRect(ix + dx, iy + dy, 1, 1);
     }
   }
+}
+
+function paintFromEvent(e){
+  const {x,y} = canvasCoords(e);
+  setCursorPositionFromCoords(x,y);
+  paintAtCoords(x,y);
 }
 
 canvas.addEventListener('mousedown', e => {
   drawing = true;
   saveState();          // stroke-level undo
-  paint(e);
+  paintFromEvent(e);
 });
 canvas.addEventListener('mousemove', e => {
-  if (drawing) paint(e);
+  const {x,y} = canvasCoords(e);
+  setCursorPositionFromCoords(x,y);
+  if (drawing) paintAtCoords(x,y);
 });
 canvas.addEventListener('mouseup', () => drawing=false);
 canvas.addEventListener('mouseleave', () => drawing=false);
+
+function toggleCursorPixel(){
+  if (!canvas.width || !canvas.height) return;
+  const pixel = ctx.getImageData(cursorX, cursorY, 1, 1).data;
+  let isEmpty;
+  if (transparentToggle.checked) {
+    isEmpty = pixel[3] === 0;
+  } else {
+    const bgRGB = hexToRGB(bgColorInput.value);
+    isEmpty = pixel[3] === 0 || (pixel[0] === bgRGB.r && pixel[1] === bgRGB.g && pixel[2] === bgRGB.b && pixel[3] === 255);
+  }
+
+  saveState();
+  if (isEmpty) {
+    ctx.fillStyle = penColor;
+    ctx.fillRect(cursorX, cursorY, 1, 1);
+  } else {
+    if (transparentToggle.checked) {
+      ctx.clearRect(cursorX, cursorY, 1, 1);
+    } else {
+      ctx.fillStyle = bgColorInput.value;
+      ctx.fillRect(cursorX, cursorY, 1, 1);
+    }
+  }
+}
+
+function activeElementConsumesKeys(){
+  const active = document.activeElement;
+  if (!active) return false;
+  if (active === document.body) return false;
+  const tag = active.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' || active.isContentEditable;
+}
+
+window.addEventListener('keydown', e => {
+  if (activeElementConsumesKeys()) return;
+  if (e.repeat && (e.key === ' ' || e.key === 'Spacebar')) return;
+  let handled = false;
+  switch (e.key) {
+    case 'ArrowUp':
+      cursorY = clamp(cursorY - 1, 0, Math.max(0, canvas.height - 1));
+      handled = true;
+      break;
+    case 'ArrowDown':
+      cursorY = clamp(cursorY + 1, 0, Math.max(0, canvas.height - 1));
+      handled = true;
+      break;
+    case 'ArrowLeft':
+      cursorX = clamp(cursorX - 1, 0, Math.max(0, canvas.width - 1));
+      handled = true;
+      break;
+    case 'ArrowRight':
+      cursorX = clamp(cursorX + 1, 0, Math.max(0, canvas.width - 1));
+      handled = true;
+      break;
+    case ' ': // Space
+    case 'Spacebar':
+      toggleCursorPixel();
+      handled = true;
+      break;
+    default:
+      break;
+  }
+
+  if (handled) {
+    e.preventDefault();
+    updateCursorOverlayPosition();
+  }
+});
 
 // Undo / Reset / Export
 const undoBtn = document.getElementById('undoBtn');
