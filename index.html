@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>8-Bit Automatron</title>
 <style>
   body {
@@ -10,8 +11,9 @@
     color:#eee;
     margin:0;
     padding:0;
-    height:100vh;
-    width:100vw;
+    min-height:100vh;
+    width:100%;
+    overflow-x:hidden;
     display:flex;
     flex-direction:column;
   }
@@ -94,6 +96,7 @@
     align-items:center;
     padding:20px;
     box-sizing:border-box;
+    overflow:auto;
   }
 
   #canvasContainer {
@@ -167,6 +170,91 @@
     height:24px;
     border:1px solid #666;
     cursor:pointer;
+  }
+
+  @media (max-width: 900px) {
+    body {
+      align-items:stretch;
+    }
+
+    #toolbar-top, #toolbar-bottom {
+      flex-direction:column;
+      align-items:stretch;
+      gap:12px;
+    }
+
+    .toolbar-row {
+      flex-direction:column;
+      align-items:stretch;
+      gap:12px;
+    }
+
+    .control,
+    .button-control {
+      width:100%;
+      min-width:0;
+    }
+
+    .control {
+      flex-direction:column;
+      align-items:flex-start;
+      gap:6px;
+    }
+
+    .control input,
+    .control select {
+      margin-left:0;
+      width:100%;
+      min-width:0;
+    }
+
+    #canvasWrapper {
+      padding:12px;
+    }
+
+    #canvasContainer {
+      max-width:100%;
+    }
+
+    h2 {
+      font-size:1.5rem;
+      padding:0 12px;
+    }
+
+    #customColorPicker {
+      width:calc(100% - 24px);
+      max-width:360px;
+    }
+
+    #customColorPicker > div:first-child {
+      flex-direction:column;
+      align-items:center;
+      gap:12px;
+    }
+
+    #svSquare,
+    #opacitySlider {
+      width:100%;
+      max-width:260px;
+    }
+
+    #hueSlider {
+      margin-left:0;
+      margin-top:10px;
+    }
+
+    #hueCursor {
+      transform:translateX(-3px);
+    }
+
+    #pickerButtons {
+      flex-direction:column;
+      width:100%;
+    }
+
+    #pickerButtons .button-control {
+      width:100%;
+    }
   }
 </style>
 </head>
