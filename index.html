@@ -387,17 +387,30 @@ function clearCanvasContents(){
 
 function updateCursorOverlayPosition(){
   if (!cursorOverlayEl) return;
-  const maxX = Math.max(0, canvas.width - 1);
-  const maxY = Math.max(0, canvas.height - 1);
+  const maxX = Math.max(0, canvas.width - penSize);
+  const maxY = Math.max(0, canvas.height - penSize);
   cursorX = clamp(cursorX, 0, maxX);
   cursorY = clamp(cursorY, 0, maxY);
   cursorOverlayEl.style.transform = `translate(${cursorX * zoom}px, ${cursorY * zoom}px)`;
 }
 
+function getSnappedCoords(x, y){
+  const size = Math.max(1, penSize);
+  const snapX = Math.floor(x / size) * size;
+  const snapY = Math.floor(y / size) * size;
+  const maxX = Math.max(0, canvas.width - size);
+  const maxY = Math.max(0, canvas.height - size);
+  return {
+    x: clamp(snapX, 0, maxX),
+    y: clamp(snapY, 0, maxY)
+  };
+}
+
 function setCursorPositionFromCoords(x, y){
   if (!canvas.width || !canvas.height) return;
-  cursorX = clamp(Math.floor(x), 0, Math.max(0, canvas.width - 1));
-  cursorY = clamp(Math.floor(y), 0, Math.max(0, canvas.height - 1));
+  const snapped = getSnappedCoords(x, y);
+  cursorX = snapped.x;
+  cursorY = snapped.y;
   updateCursorOverlayPosition();
 }
 
@@ -412,15 +425,21 @@ function applyZoom(){
   if (gridOverlayEl) {
     gridOverlayEl.style.width = displayWidth + 'px';
     gridOverlayEl.style.height = displayHeight + 'px';
-    gridOverlayEl.style.backgroundSize = `${zoom}px ${zoom}px`;
     gridOverlayEl.style.opacity = zoom > 1 ? '1' : '0.3';
   }
 
-  if (cursorOverlayEl) {
-    cursorOverlayEl.style.width = zoom + 'px';
-    cursorOverlayEl.style.height = zoom + 'px';
-  }
+  updateOverlaySizing();
+}
 
+function updateOverlaySizing(){
+  if (gridOverlayEl) {
+    const size = penSize * zoom;
+    gridOverlayEl.style.backgroundSize = `${size}px ${size}px`;
+  }
+  if (cursorOverlayEl) {
+    cursorOverlayEl.style.width = (penSize * zoom) + 'px';
+    cursorOverlayEl.style.height = (penSize * zoom) + 'px';
+  }
   updateCursorOverlayPosition();
 }
 
@@ -469,11 +488,22 @@ function updateCanvasBackground(){
 
 transparentToggle.addEventListener('change', updateCanvasBackground);
 
-penSizeInput.addEventListener('change', e => {
-  let v = parseInt(e.target.value,10);
+function setPenSize(value){
+  let v = parseInt(value,10);
   if (isNaN(v) || v < 1) v = 1;
   penSize = v;
   penSizeInput.value = v;
+  const snapped = getSnappedCoords(cursorX, cursorY);
+  cursorX = snapped.x;
+  cursorY = snapped.y;
+  updateOverlaySizing();
+}
+
+penSizeInput.addEventListener('change', e => {
+  setPenSize(e.target.value);
+});
+penSizeInput.addEventListener('input', e => {
+  setPenSize(e.target.value);
 });
 
 function saveState(){
@@ -543,20 +573,18 @@ function canvasCoords(e){
 }
 
 function paintAtCoords(x, y){
+  const {x: sx, y: sy} = getSnappedCoords(x, y);
+  const drawWidth = Math.min(penSize, canvas.width - sx);
+  const drawHeight = Math.min(penSize, canvas.height - sy);
+  if (drawWidth <= 0 || drawHeight <= 0) return;
   ctx.fillStyle = penColor;
-  const ix = Math.floor(x);
-  const iy = Math.floor(y);
-  for (let dx = -penSize; dx <= penSize; dx++){
-    for (let dy = -penSize; dy <= penSize; dy++){
-      ctx.fillRect(ix + dx, iy + dy, 1, 1);
-    }
-  }
+  ctx.fillRect(sx, sy, drawWidth, drawHeight);
 }
 
 function paintFromEvent(e){
   const {x,y} = canvasCoords(e);
   setCursorPositionFromCoords(x,y);
-  paintAtCoords(x,y);
+  paintAtCoords(cursorX, cursorY);
 }
 
 canvas.addEventListener('mousedown', e => {
@@ -567,32 +595,45 @@ canvas.addEventListener('mousedown', e => {
 canvas.addEventListener('mousemove', e => {
   const {x,y} = canvasCoords(e);
   setCursorPositionFromCoords(x,y);
-  if (drawing) paintAtCoords(x,y);
+  if (drawing) paintAtCoords(cursorX, cursorY);
 });
 canvas.addEventListener('mouseup', () => drawing=false);
 canvas.addEventListener('mouseleave', () => drawing=false);
 
 function toggleCursorPixel(){
   if (!canvas.width || !canvas.height) return;
-  const pixel = ctx.getImageData(cursorX, cursorY, 1, 1).data;
-  let isEmpty;
-  if (transparentToggle.checked) {
-    isEmpty = pixel[3] === 0;
-  } else {
-    const bgRGB = hexToRGB(bgColorInput.value);
-    isEmpty = pixel[3] === 0 || (pixel[0] === bgRGB.r && pixel[1] === bgRGB.g && pixel[2] === bgRGB.b && pixel[3] === 255);
+  const blockWidth = Math.min(penSize, canvas.width - cursorX);
+  const blockHeight = Math.min(penSize, canvas.height - cursorY);
+  if (blockWidth <= 0 || blockHeight <= 0) return;
+
+  const blockData = ctx.getImageData(cursorX, cursorY, blockWidth, blockHeight).data;
+  let isEmpty = true;
+  const bgRGB = transparentToggle.checked ? null : hexToRGB(bgColorInput.value);
+  for (let i = 0; i < blockData.length; i += 4) {
+    if (transparentToggle.checked) {
+      if (blockData[i + 3] !== 0) {
+        isEmpty = false;
+        break;
+      }
+    } else {
+      const matchesBg = blockData[i] === bgRGB.r && blockData[i + 1] === bgRGB.g && blockData[i + 2] === bgRGB.b && blockData[i + 3] === 255;
+      if (!matchesBg) {
+        isEmpty = false;
+        break;
+      }
+    }
   }
 
   saveState();
   if (isEmpty) {
     ctx.fillStyle = penColor;
-    ctx.fillRect(cursorX, cursorY, 1, 1);
+    ctx.fillRect(cursorX, cursorY, blockWidth, blockHeight);
   } else {
     if (transparentToggle.checked) {
-      ctx.clearRect(cursorX, cursorY, 1, 1);
+      ctx.clearRect(cursorX, cursorY, blockWidth, blockHeight);
     } else {
       ctx.fillStyle = bgColorInput.value;
-      ctx.fillRect(cursorX, cursorY, 1, 1);
+      ctx.fillRect(cursorX, cursorY, blockWidth, blockHeight);
     }
   }
 }
@@ -611,19 +652,19 @@ window.addEventListener('keydown', e => {
   let handled = false;
   switch (e.key) {
     case 'ArrowUp':
-      cursorY = clamp(cursorY - 1, 0, Math.max(0, canvas.height - 1));
+      cursorY = clamp(cursorY - penSize, 0, Math.max(0, canvas.height - penSize));
       handled = true;
       break;
     case 'ArrowDown':
-      cursorY = clamp(cursorY + 1, 0, Math.max(0, canvas.height - 1));
+      cursorY = clamp(cursorY + penSize, 0, Math.max(0, canvas.height - penSize));
       handled = true;
       break;
     case 'ArrowLeft':
-      cursorX = clamp(cursorX - 1, 0, Math.max(0, canvas.width - 1));
+      cursorX = clamp(cursorX - penSize, 0, Math.max(0, canvas.width - penSize));
       handled = true;
       break;
     case 'ArrowRight':
-      cursorX = clamp(cursorX + 1, 0, Math.max(0, canvas.width - 1));
+      cursorX = clamp(cursorX + penSize, 0, Math.max(0, canvas.width - penSize));
       handled = true;
       break;
     case ' ': // Space
@@ -945,6 +986,7 @@ penSwatch.addEventListener('click', () => openPicker('pen', penSwatch));
 // ============
 // Initialization
 // ============
+setPenSize(penSizeInput.value);
 updateCanvasSize();
 updateCanvasBackground();
 
