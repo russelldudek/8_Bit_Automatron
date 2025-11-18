@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>8-Bit Automatron</title>
 <style>
   body {
@@ -10,8 +11,9 @@
     color:#eee;
     margin:0;
     padding:0;
-    height:100vh;
-    width:100vw;
+    min-height:100vh;
+    width:100%;
+    overflow-x:hidden;
     display:flex;
     flex-direction:column;
   }
@@ -37,7 +39,6 @@
 
   canvas {
     image-rendering: pixelated;
-    border:2px solid #666;
     background:transparent;
     cursor:crosshair;
   }
@@ -126,6 +127,40 @@
     overflow:auto;
   }
 
+  #canvasContainer {
+    position:relative;
+    display:inline-block;
+    border:2px solid #666;
+  }
+
+  #canvasContainer canvas {
+    display:block;
+  }
+
+  #gridOverlay,
+  #cursorOverlay {
+    position:absolute;
+    top:0;
+    left:0;
+    pointer-events:none;
+  }
+
+  #gridOverlay {
+    background-image:
+      linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px);
+    background-repeat:repeat;
+    box-sizing:border-box;
+    z-index:1;
+  }
+
+  #cursorOverlay {
+    border:2px solid #0ff;
+    box-sizing:border-box;
+    z-index:2;
+    background:rgba(0,255,255,0.12);
+  }
+
   /* Color picker */
   #customColorPicker {
     position:fixed;
@@ -167,6 +202,91 @@
     border:1px solid #666;
     cursor:pointer;
   }
+
+  @media (max-width: 900px) {
+    body {
+      align-items:stretch;
+    }
+
+    #toolbar-top, #toolbar-bottom {
+      flex-direction:column;
+      align-items:stretch;
+      gap:12px;
+    }
+
+    .toolbar-row {
+      flex-direction:column;
+      align-items:stretch;
+      gap:12px;
+    }
+
+    .control,
+    .button-control {
+      width:100%;
+      min-width:0;
+    }
+
+    .control {
+      flex-direction:column;
+      align-items:flex-start;
+      gap:6px;
+    }
+
+    .control input,
+    .control select {
+      margin-left:0;
+      width:100%;
+      min-width:0;
+    }
+
+    #canvasWrapper {
+      padding:12px;
+    }
+
+    #canvasContainer {
+      max-width:100%;
+    }
+
+    h2 {
+      font-size:1.5rem;
+      padding:0 12px;
+    }
+
+    #customColorPicker {
+      width:calc(100% - 24px);
+      max-width:360px;
+    }
+
+    #customColorPicker > div:first-child {
+      flex-direction:column;
+      align-items:center;
+      gap:12px;
+    }
+
+    #svSquare,
+    #opacitySlider {
+      width:100%;
+      max-width:260px;
+    }
+
+    #hueSlider {
+      margin-left:0;
+      margin-top:10px;
+    }
+
+    #hueCursor {
+      transform:translateX(-3px);
+    }
+
+    #pickerButtons {
+      flex-direction:column;
+      width:100%;
+    }
+
+    #pickerButtons .button-control {
+      width:100%;
+    }
+  }
 </style>
 </head>
 <body>
@@ -183,6 +303,7 @@
       <option value="4:1">Banner</option>
     </select>
   </div>
+  <div class="control">Zoom: <input type="number" id="zoomLevel" value="4" min="1" max="32" style="width:4em;"></div>
   <div class="control">Background:
     <div id="bgSwatch" class="swatch" style="background:#000000; margin-left:6px;"></div>
     <input type="hidden" id="bgColorInput" value="#000000">
@@ -216,7 +337,11 @@
 </div>
 
 <div id="canvasWrapper">
-  <canvas id="canvas"></canvas>
+  <div id="canvasContainer">
+    <canvas id="canvas"></canvas>
+    <div id="gridOverlay"></div>
+    <div id="cursorOverlay"></div>
+  </div>
 </div>
 
 <div id="zoomControls">
@@ -282,27 +407,10 @@ const penEraserToggle = document.getElementById('penEraser');
 const uploadBtn = document.getElementById('uploadBtn');
 const uploadInput = document.getElementById('uploadInput');
 const bitifyBtn = document.getElementById('bitifyBtn');
-const fileNameInput = document.getElementById('fileNameInput');
-const colorPickerToolBtn = document.getElementById('colorPickerTool');
-const zoomInBtn = document.getElementById('zoomInBtn');
-const zoomOutBtn = document.getElementById('zoomOutBtn');
-const zoomDisplay = document.getElementById('zoomDisplay');
-const picker = document.getElementById('customColorPicker');
-const sv = document.getElementById('svSquare');
-const hue = document.getElementById('hueSlider');
-const svCtx = sv.getContext('2d');
-const hueCtx = hue.getContext('2d');
-const svCursor = document.getElementById('svCursor');
-const hueCursor = document.getElementById('hueCursor');
-const opacitySlider = document.getElementById('opacitySlider');
-const customHex = document.getElementById('customHex');
-const rInput = document.getElementById('rInput');
-const gInput = document.getElementById('gInput');
-const bInput = document.getElementById('bInput');
-const applyColor = document.getElementById('applyColor');
-const cancelColor = document.getElementById('cancelColor');
-const historyRow = document.getElementById('historyRow');
-const previewSwatch = document.getElementById('previewSwatch');
+const zoomInput = document.getElementById('zoomLevel');
+const canvasContainer = document.getElementById('canvasContainer');
+const gridOverlayEl = document.getElementById('gridOverlay');
+const cursorOverlayEl = document.getElementById('cursorOverlay');
 
 let baseSize = 200;
 const maxSize = 1024;
@@ -317,12 +425,10 @@ let penSize = 4;
 let penColor = '#ffffff';
 let historyStack = [];
 let uploadedImage = null;
-let pickColorMode = false;
-sv.width = 200; sv.height = 200;
-hue.width = 20; hue.height = 200;
-let hsv = {h:0, s:1, v:1};
-let currentPickerTarget = null; // 'bg' or 'pen'
-let historyColors = [];
+let zoom = clamp(parseInt(zoomInput.value, 10) || 1, 1, 32);
+zoomInput.value = zoom;
+let cursorX = 0;
+let cursorY = 0;
 
 function clamp(val,min,max){return Math.max(min,Math.min(max,val));}
 
@@ -348,31 +454,69 @@ function clearCanvasContents(){
   }
 }
 
-function applyColorToTarget(target, hex, { rememberHistory = true } = {}) {
-  const normalized = normalizeHex(hex);
-  if (target === 'bg') {
-    bgColorInput.value = normalized;
-    bgSwatch.style.backgroundColor = normalized;
-    bgColorPicker.value = normalized;
-    updateCanvasBackground();
-  } else {
-    penColorInput.value = normalized;
-    penSwatch.style.backgroundColor = normalized;
-    penColorPicker.value = normalized;
-    penColor = normalized;
+function updateCursorOverlayPosition(){
+  if (!cursorOverlayEl) return;
+  const maxX = Math.max(0, canvas.width - penSize);
+  const maxY = Math.max(0, canvas.height - penSize);
+  cursorX = clamp(cursorX, 0, maxX);
+  cursorY = clamp(cursorY, 0, maxY);
+  cursorOverlayEl.style.transform = `translate(${cursorX * zoom}px, ${cursorY * zoom}px)`;
+}
+
+function getSnappedCoords(x, y){
+  const size = Math.max(1, penSize);
+  const snapX = Math.floor(x / size) * size;
+  const snapY = Math.floor(y / size) * size;
+  const maxX = Math.max(0, canvas.width - size);
+  const maxY = Math.max(0, canvas.height - size);
+  return {
+    x: clamp(snapX, 0, maxX),
+    y: clamp(snapY, 0, maxY)
+  };
+}
+
+function setCursorPositionFromCoords(x, y){
+  if (!canvas.width || !canvas.height) return;
+  const snapped = getSnappedCoords(x, y);
+  cursorX = snapped.x;
+  cursorY = snapped.y;
+  updateCursorOverlayPosition();
+}
+
+function applyZoom(){
+  const displayWidth = canvas.width * zoom;
+  const displayHeight = canvas.height * zoom;
+  canvas.style.width = displayWidth + 'px';
+  canvas.style.height = displayHeight + 'px';
+  canvasContainer.style.width = displayWidth + 'px';
+  canvasContainer.style.height = displayHeight + 'px';
+
+  if (gridOverlayEl) {
+    gridOverlayEl.style.width = displayWidth + 'px';
+    gridOverlayEl.style.height = displayHeight + 'px';
+    gridOverlayEl.style.opacity = zoom > 1 ? '1' : '0.3';
   }
 
-  if (rememberHistory) {
-    pushHistory(normalized);
-  }
+  updateOverlaySizing();
+}
 
-  if (picker.style.display === 'block' && currentPickerTarget === target) {
-    const rgb = hexToRGB(normalized);
-    hsv = RGBtoHSV(rgb.r,rgb.g,rgb.b);
-    drawHue();
-    drawSV();
-    updatePickerFields();
+function updateOverlaySizing(){
+  if (gridOverlayEl) {
+    const size = penSize * zoom;
+    gridOverlayEl.style.backgroundSize = `${size}px ${size}px`;
   }
+  if (cursorOverlayEl) {
+    cursorOverlayEl.style.width = (penSize * zoom) + 'px';
+    cursorOverlayEl.style.height = (penSize * zoom) + 'px';
+  }
+  updateCursorOverlayPosition();
+}
+
+function setZoomLevel(value){
+  const parsed = parseInt(value, 10);
+  zoom = clamp(isNaN(parsed) ? zoom : parsed, 1, 32);
+  zoomInput.value = zoom;
+  applyZoom();
 }
 
 function updateCanvasSize(){
@@ -394,11 +538,14 @@ function updateCanvasSize(){
   canvas.width = gridW;
   canvas.height = gridH;
   ctx.imageSmoothingEnabled = false;
-  updateCanvasZoom();
+  updateCursorOverlayPosition();
+  applyZoom();
 }
 
 pixelSizeInput.addEventListener('change', updateCanvasSize);
 aspectSelect.addEventListener('change', updateCanvasSize);
+zoomInput.addEventListener('change', e => setZoomLevel(e.target.value));
+zoomInput.addEventListener('input', e => setZoomLevel(e.target.value));
 
 function updateCanvasBackground(){
   if (transparentToggle.checked) {
@@ -410,31 +557,22 @@ function updateCanvasBackground(){
 
 transparentToggle.addEventListener('change', updateCanvasBackground);
 
-function updateCanvasZoom(){
-  canvas.style.width = (gridW * zoomLevel) + 'px';
-  canvas.style.height = (gridH * zoomLevel) + 'px';
-  zoomDisplay.textContent = Math.round(zoomLevel * 100) + '%';
-}
-
-function setZoom(level){
-  zoomLevel = clamp(level, minZoom, maxZoom);
-  updateCanvasZoom();
-}
-
-zoomInBtn.addEventListener('click', () => setZoom(zoomLevel + 0.25));
-zoomOutBtn.addEventListener('click', () => setZoom(zoomLevel - 0.25));
-
-canvas.addEventListener('wheel', e => {
-  e.preventDefault();
-  const delta = e.deltaY < 0 ? 0.1 : -0.1;
-  setZoom(zoomLevel + delta);
-}, { passive: false });
-
-penSizeInput.addEventListener('change', e => {
-  let v = parseInt(e.target.value,10);
+function setPenSize(value){
+  let v = parseInt(value,10);
   if (isNaN(v) || v < 1) v = 1;
   penSize = v;
   penSizeInput.value = v;
+  const snapped = getSnappedCoords(cursorX, cursorY);
+  cursorX = snapped.x;
+  cursorY = snapped.y;
+  updateOverlaySizing();
+}
+
+penSizeInput.addEventListener('change', e => {
+  setPenSize(e.target.value);
+});
+penSizeInput.addEventListener('input', e => {
+  setPenSize(e.target.value);
 });
 
 bgColorPicker.addEventListener('input', () => {
@@ -513,31 +651,19 @@ function canvasCoords(e){
   return {x,y};
 }
 
-function paint(e){
+function paintAtCoords(x, y){
+  const {x: sx, y: sy} = getSnappedCoords(x, y);
+  const drawWidth = Math.min(penSize, canvas.width - sx);
+  const drawHeight = Math.min(penSize, canvas.height - sy);
+  if (drawWidth <= 0 || drawHeight <= 0) return;
+  ctx.fillStyle = penColor;
+  ctx.fillRect(sx, sy, drawWidth, drawHeight);
+}
+
+function paintFromEvent(e){
   const {x,y} = canvasCoords(e);
-  const ix = Math.floor(x);
-  const iy = Math.floor(y);
-  const erasing = penEraserToggle.checked;
-  if (!erasing) {
-    ctx.fillStyle = penColor;
-  } else if (!transparentToggle.checked) {
-    ctx.fillStyle = bgColorInput.value;
-  }
-  for (let dx = -penSize; dx <= penSize; dx++){
-    for (let dy = -penSize; dy <= penSize; dy++){
-      const px = ix + dx;
-      const py = iy + dy;
-      if (erasing){
-        if (transparentToggle.checked){
-          ctx.clearRect(px, py, 1, 1);
-        } else {
-          ctx.fillRect(px, py, 1, 1);
-        }
-      } else {
-        ctx.fillRect(px, py, 1, 1);
-      }
-    }
-  }
+  setCursorPositionFromCoords(x,y);
+  paintAtCoords(cursorX, cursorY);
 }
 
 function setPickColorMode(active){
@@ -572,14 +698,97 @@ canvas.addEventListener('mousedown', e => {
   }
   drawing = true;
   saveState();          // stroke-level undo
-  paint(e);
+  paintFromEvent(e);
 });
 canvas.addEventListener('mousemove', e => {
-  if (pickColorMode) return;
-  if (drawing) paint(e);
+  const {x,y} = canvasCoords(e);
+  setCursorPositionFromCoords(x,y);
+  if (drawing) paintAtCoords(cursorX, cursorY);
 });
 canvas.addEventListener('mouseup', () => drawing=false);
 canvas.addEventListener('mouseleave', () => drawing=false);
+
+function toggleCursorPixel(){
+  if (!canvas.width || !canvas.height) return;
+  const blockWidth = Math.min(penSize, canvas.width - cursorX);
+  const blockHeight = Math.min(penSize, canvas.height - cursorY);
+  if (blockWidth <= 0 || blockHeight <= 0) return;
+
+  const blockData = ctx.getImageData(cursorX, cursorY, blockWidth, blockHeight).data;
+  let isEmpty = true;
+  const bgRGB = transparentToggle.checked ? null : hexToRGB(bgColorInput.value);
+  for (let i = 0; i < blockData.length; i += 4) {
+    if (transparentToggle.checked) {
+      if (blockData[i + 3] !== 0) {
+        isEmpty = false;
+        break;
+      }
+    } else {
+      const matchesBg = blockData[i] === bgRGB.r && blockData[i + 1] === bgRGB.g && blockData[i + 2] === bgRGB.b && blockData[i + 3] === 255;
+      if (!matchesBg) {
+        isEmpty = false;
+        break;
+      }
+    }
+  }
+
+  saveState();
+  if (isEmpty) {
+    ctx.fillStyle = penColor;
+    ctx.fillRect(cursorX, cursorY, blockWidth, blockHeight);
+  } else {
+    if (transparentToggle.checked) {
+      ctx.clearRect(cursorX, cursorY, blockWidth, blockHeight);
+    } else {
+      ctx.fillStyle = bgColorInput.value;
+      ctx.fillRect(cursorX, cursorY, blockWidth, blockHeight);
+    }
+  }
+}
+
+function activeElementConsumesKeys(){
+  const active = document.activeElement;
+  if (!active) return false;
+  if (active === document.body) return false;
+  const tag = active.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' || active.isContentEditable;
+}
+
+window.addEventListener('keydown', e => {
+  if (activeElementConsumesKeys()) return;
+  if (e.repeat && (e.key === ' ' || e.key === 'Spacebar')) return;
+  let handled = false;
+  switch (e.key) {
+    case 'ArrowUp':
+      cursorY = clamp(cursorY - penSize, 0, Math.max(0, canvas.height - penSize));
+      handled = true;
+      break;
+    case 'ArrowDown':
+      cursorY = clamp(cursorY + penSize, 0, Math.max(0, canvas.height - penSize));
+      handled = true;
+      break;
+    case 'ArrowLeft':
+      cursorX = clamp(cursorX - penSize, 0, Math.max(0, canvas.width - penSize));
+      handled = true;
+      break;
+    case 'ArrowRight':
+      cursorX = clamp(cursorX + penSize, 0, Math.max(0, canvas.width - penSize));
+      handled = true;
+      break;
+    case ' ': // Space
+    case 'Spacebar':
+      toggleCursorPixel();
+      handled = true;
+      break;
+    default:
+      break;
+  }
+
+  if (handled) {
+    e.preventDefault();
+    updateCursorOverlayPosition();
+  }
+});
 
 // Undo / Reset / Export
 const undoBtn = document.getElementById('undoBtn');
@@ -888,7 +1097,7 @@ penSwatch.addEventListener('click', () => openPicker('pen', penSwatch));
 // ============
 // Initialization
 // ============
-updatePreviewSwatch(penColor);
+setPenSize(penSizeInput.value);
 updateCanvasSize();
 updateCanvasBackground();
 
