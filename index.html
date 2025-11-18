@@ -645,8 +645,9 @@ function drawShape(start, end, mode, shouldFill){
 
   if (shouldFill) {
     ctx.fill();
+  } else {
+    ctx.stroke();
   }
-  ctx.stroke();
 }
 
 function finalizeShape(e){
