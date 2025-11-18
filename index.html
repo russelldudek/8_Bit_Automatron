@@ -240,7 +240,16 @@
     <input type="color" id="penColorInput" class="color-input" value="#ffffff">
   </div>
   <div class="control"><label><input type="checkbox" id="penEraser"> Eraser Mode</label></div>
-</div>
+  <div class="control">Draw Mode:
+    <select id="drawingMode">
+      <option value="pen">Freehand</option>
+      <option value="rectangle">Rectangle</option>
+      <option value="circle">Circle</option>
+      <option value="triangle">Triangle</option>
+    </select>
+  </div>
+  <div class="control"><label><input type="checkbox" id="shapeFillToggle" checked> Fill Shapes</label></div>
+  </div>
 
 <div id="toolbar-bottom">
   <div class="toolbar-row">
@@ -294,6 +303,8 @@ const bitifyBtn = document.getElementById('bitifyBtn');
 const zoomInput = document.getElementById('zoomLevel');
 const fileNameInput = document.getElementById('fileNameInput');
 const colorPickerToolBtn = document.getElementById('colorPickerTool');
+const drawingModeSelect = document.getElementById('drawingMode');
+const shapeFillToggle = document.getElementById('shapeFillToggle');
 const canvasContainer = document.getElementById('canvasContainer');
 const gridOverlayEl = document.getElementById('gridOverlay');
 const cursorOverlayEl = document.getElementById('cursorOverlay');
@@ -315,6 +326,23 @@ zoomInput.value = zoom;
 let cursorX = 0;
 let cursorY = 0;
 let pickColorMode = false;
+let drawingMode = drawingModeSelect ? drawingModeSelect.value : 'pen';
+let fillShapes = shapeFillToggle ? shapeFillToggle.checked : true;
+let shapeStart = null;
+let shapeCurrent = null;
+let shapeSnapshot = null;
+
+if (drawingModeSelect) {
+  drawingModeSelect.addEventListener('change', e => {
+    drawingMode = e.target.value;
+  });
+}
+
+if (shapeFillToggle) {
+  shapeFillToggle.addEventListener('change', e => {
+    fillShapes = e.target.checked;
+  });
+}
 
 function clamp(val,min,max){return Math.max(min,Math.min(max,val));}
 
@@ -564,10 +592,88 @@ function paintAtCoords(x, y){
   ctx.fillRect(sx, sy, drawWidth, drawHeight);
 }
 
-function paintFromEvent(e){
-  const {x,y} = canvasCoords(e);
-  setCursorPositionFromCoords(x,y);
-  paintAtCoords(cursorX, cursorY);
+function drawShape(start, end, mode, shouldFill){
+  if (!start || !end) return;
+  ctx.lineWidth = Math.max(1, penSize);
+  ctx.lineJoin = 'miter';
+  ctx.lineCap = 'butt';
+  ctx.strokeStyle = penColor;
+  ctx.fillStyle = penColor;
+
+  const samePoint = start.x === end.x && start.y === end.y;
+  if (samePoint) {
+    if (shouldFill) {
+      ctx.fillRect(start.x, start.y, penSize, penSize);
+    } else {
+      ctx.beginPath();
+      ctx.rect(start.x, start.y, penSize, penSize);
+      ctx.stroke();
+    }
+    return;
+  }
+
+  const bounds = {
+    left: Math.min(start.x, end.x),
+    top: Math.min(start.y, end.y),
+    width: Math.max(Math.abs(end.x - start.x), 1),
+    height: Math.max(Math.abs(end.y - start.y), 1)
+  };
+
+  ctx.beginPath();
+  switch (mode) {
+    case 'circle': {
+      const radiusX = bounds.width / 2;
+      const radiusY = bounds.height / 2;
+      const centerX = bounds.left + radiusX;
+      const centerY = bounds.top + radiusY;
+      ctx.ellipse(centerX, centerY, Math.max(1, radiusX), Math.max(1, radiusY), 0, 0, Math.PI * 2);
+      break;
+    }
+    case 'triangle': {
+      const apexX = bounds.left + bounds.width / 2;
+      ctx.moveTo(apexX, bounds.top);
+      ctx.lineTo(bounds.left, bounds.top + bounds.height);
+      ctx.lineTo(bounds.left + bounds.width, bounds.top + bounds.height);
+      ctx.closePath();
+      break;
+    }
+    case 'rectangle':
+    default:
+      ctx.rect(bounds.left, bounds.top, bounds.width, bounds.height);
+      break;
+  }
+
+  if (shouldFill) {
+    ctx.fill();
+  }
+  ctx.stroke();
+}
+
+function finalizeShape(e){
+  if (!drawing || drawingMode === 'pen') {
+    drawing = false;
+    return;
+  }
+
+  let snapped = shapeCurrent;
+  if (e && typeof e.clientX === 'number' && typeof e.clientY === 'number') {
+    const {x, y} = canvasCoords(e);
+    snapped = getSnappedCoords(x, y);
+  }
+
+  if (!snapped && shapeStart) {
+    snapped = shapeStart;
+  }
+
+  if (shapeSnapshot && shapeStart) {
+    ctx.putImageData(shapeSnapshot, 0, 0);
+    drawShape(shapeStart, snapped || shapeStart, drawingMode, fillShapes);
+  }
+
+  drawing = false;
+  shapeStart = null;
+  shapeCurrent = null;
+  shapeSnapshot = null;
 }
 
 function setPickColorMode(active){
@@ -602,17 +708,40 @@ canvas.addEventListener('mousedown', e => {
     sampleCanvasColor(e);
     return;
   }
+
+  if (!canvas.width || !canvas.height) return;
+
+  const {x, y} = canvasCoords(e);
+  setCursorPositionFromCoords(x, y);
+
+  const snappedStart = getSnappedCoords(x, y);
+  const usingShapeTool = drawingMode !== 'pen';
   drawing = true;
   saveState();          // stroke-level undo
-  paintFromEvent(e);
+
+  if (usingShapeTool) {
+    shapeStart = snappedStart;
+    shapeCurrent = snappedStart;
+    shapeSnapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  } else {
+    paintAtCoords(cursorX, cursorY);
+  }
 });
 canvas.addEventListener('mousemove', e => {
   const {x,y} = canvasCoords(e);
   setCursorPositionFromCoords(x,y);
-  if (drawing) paintAtCoords(cursorX, cursorY);
+  if (!drawing) return;
+  if (drawingMode === 'pen') {
+    paintAtCoords(cursorX, cursorY);
+  } else if (shapeSnapshot && shapeStart) {
+    shapeCurrent = getSnappedCoords(x, y);
+    ctx.putImageData(shapeSnapshot, 0, 0);
+    drawShape(shapeStart, shapeCurrent, drawingMode, fillShapes);
+  }
 });
-canvas.addEventListener('mouseup', () => drawing=false);
-canvas.addEventListener('mouseleave', () => drawing=false);
+canvas.addEventListener('mouseup', e => finalizeShape(e));
+canvas.addEventListener('mouseleave', e => finalizeShape(e));
+window.addEventListener('mouseup', e => finalizeShape(e));
 
 function toggleCursorPixel(){
   if (!canvas.width || !canvas.height) return;
