@@ -331,6 +331,7 @@ let fillShapes = shapeFillToggle ? shapeFillToggle.checked : true;
 let shapeStart = null;
 let shapeCurrent = null;
 let shapeSnapshot = null;
+let eraserMode = penEraserToggle ? penEraserToggle.checked : false;
 
 if (drawingModeSelect) {
   drawingModeSelect.addEventListener('change', e => {
@@ -341,6 +342,13 @@ if (drawingModeSelect) {
 if (shapeFillToggle) {
   shapeFillToggle.addEventListener('change', e => {
     fillShapes = e.target.checked;
+  });
+}
+
+if (penEraserToggle) {
+  penEraserToggle.addEventListener('change', e => {
+    eraserMode = e.target.checked;
+    updateCursorOverlayAppearance();
   });
 }
 
@@ -375,6 +383,14 @@ function updateCursorOverlayPosition(){
   cursorX = clamp(cursorX, 0, maxX);
   cursorY = clamp(cursorY, 0, maxY);
   cursorOverlayEl.style.transform = `translate(${cursorX * zoom}px, ${cursorY * zoom}px)`;
+}
+
+function updateCursorOverlayAppearance(){
+  if (!cursorOverlayEl) return;
+  const border = eraserMode ? '#f88' : '#0ff';
+  const fill = eraserMode ? 'rgba(255,136,136,0.15)' : 'rgba(0,255,255,0.12)';
+  cursorOverlayEl.style.borderColor = border;
+  cursorOverlayEl.style.background = fill;
 }
 
 function getSnappedCoords(x, y){
@@ -427,6 +443,7 @@ function updateOverlaySizing(){
     cursorOverlayEl.style.height = cursorSize + 'px';
   }
   updateCursorOverlayPosition();
+  updateCursorOverlayAppearance();
 }
 
 function setZoomLevel(value){
@@ -588,27 +605,52 @@ function paintAtCoords(x, y){
   const drawWidth = Math.min(penSize, canvas.width - sx);
   const drawHeight = Math.min(penSize, canvas.height - sy);
   if (drawWidth <= 0 || drawHeight <= 0) return;
+  if (eraserMode) {
+    eraseRectArea(sx, sy, drawWidth, drawHeight);
+    return;
+  }
   ctx.fillStyle = penColor;
   ctx.fillRect(sx, sy, drawWidth, drawHeight);
 }
 
+function eraseRectArea(x, y, width, height){
+  if (transparentToggle.checked) {
+    ctx.clearRect(x, y, width, height);
+  } else {
+    ctx.fillStyle = bgColorInput.value;
+    ctx.fillRect(x, y, width, height);
+  }
+}
+
 function drawShape(start, end, mode, shouldFill){
   if (!start || !end) return;
+  ctx.save();
   ctx.lineWidth = Math.max(1, penSize);
   ctx.lineJoin = 'miter';
   ctx.lineCap = 'butt';
-  ctx.strokeStyle = penColor;
-  ctx.fillStyle = penColor;
+
+  if (eraserMode && transparentToggle.checked) {
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.strokeStyle = '#000000';
+    ctx.fillStyle = '#000000';
+  } else {
+    const brushColor = eraserMode ? bgColorInput.value : penColor;
+    ctx.strokeStyle = brushColor;
+    ctx.fillStyle = brushColor;
+  }
 
   const samePoint = start.x === end.x && start.y === end.y;
   if (samePoint) {
-    if (shouldFill) {
+    if (eraserMode) {
+      eraseRectArea(start.x, start.y, penSize, penSize);
+    } else if (shouldFill) {
       ctx.fillRect(start.x, start.y, penSize, penSize);
     } else {
       ctx.beginPath();
       ctx.rect(start.x, start.y, penSize, penSize);
       ctx.stroke();
     }
+    ctx.restore();
     return;
   }
 
@@ -648,6 +690,7 @@ function drawShape(start, end, mode, shouldFill){
   } else {
     ctx.stroke();
   }
+  ctx.restore();
 }
 
 function finalizeShape(e){
