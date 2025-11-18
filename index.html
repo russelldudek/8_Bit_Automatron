@@ -261,7 +261,6 @@
     <button id="uploadBtn" class="button-control">Upload PNG</button>
     <input type="file" id="uploadInput" accept="image/png" style="display:none;">
     <button id="bitifyBtn" class="button-control">8-Bitify</button>
-    <button id="colorPickerTool" class="button-control" title="Pick a color from the canvas">Pick Color</button>
     <button id="exportBtn" class="button-control">Export PNG</button>
     <div class="control" style="min-width:200px;">
       File Name: <input type="text" id="fileNameInput" value="design" style="margin-left:6px; width:120px;">
@@ -303,7 +302,6 @@ const uploadInput = document.getElementById('uploadInput');
 const bitifyBtn = document.getElementById('bitifyBtn');
 const zoomInput = document.getElementById('zoomLevel');
 const fileNameInput = document.getElementById('fileNameInput');
-const colorPickerToolBtn = document.getElementById('colorPickerTool');
 const drawingModeSelect = document.getElementById('drawingMode');
 const shapeFillToggle = document.getElementById('shapeFillToggle');
 const canvasContainer = document.getElementById('canvasContainer');
@@ -326,7 +324,6 @@ let zoom = clamp(parseInt(zoomInput.value, 10) || 1, 1, 32);
 zoomInput.value = zoom;
 let cursorX = 0;
 let cursorY = 0;
-let pickColorMode = false;
 let drawingMode = drawingModeSelect ? drawingModeSelect.value : 'pen';
 let fillShapes = shapeFillToggle ? shapeFillToggle.checked : true;
 let shapeStart = null;
@@ -724,39 +721,7 @@ function finalizeShape(e){
   shapeSnapshot = null;
 }
 
-function setPickColorMode(active){
-  pickColorMode = active;
-  if (colorPickerToolBtn) {
-    colorPickerToolBtn.classList.toggle('active', active);
-  }
-  canvas.style.cursor = active ? 'copy' : 'crosshair';
-}
-
-function sampleCanvasColor(e){
-  if (canvas.width === 0 || canvas.height === 0) {
-    setPickColorMode(false);
-    return;
-  }
-  const {x,y} = canvasCoords(e);
-  const ix = clamp(Math.floor(x), 0, canvas.width - 1);
-  const iy = clamp(Math.floor(y), 0, canvas.height - 1);
-  const data = ctx.getImageData(ix, iy, 1, 1).data;
-  let hex;
-  if (data[3] === 0) {
-    hex = transparentToggle.checked ? penColor : bgColorInput.value;
-  } else {
-    hex = RGBtoHex(data[0], data[1], data[2]);
-  }
-  applyColorToTarget('pen', hex);
-  setPickColorMode(false);
-}
-
 canvas.addEventListener('mousedown', e => {
-  if (pickColorMode) {
-    sampleCanvasColor(e);
-    return;
-  }
-
   if (!canvas.width || !canvas.height) return;
 
   const {x, y} = canvasCoords(e);
@@ -939,18 +904,6 @@ uploadInput.addEventListener('change', e => {
 bitifyBtn.addEventListener('click', () => {
   if (canvas.width === 0 || canvas.height === 0) return;
   eightBitifyCanvas();
-});
-
-if (colorPickerToolBtn) {
-  colorPickerToolBtn.addEventListener('click', () => {
-    setPickColorMode(!pickColorMode);
-  });
-}
-
-window.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && pickColorMode) {
-    setPickColorMode(false);
-  }
 });
 
 function hexToRGB(hex){
