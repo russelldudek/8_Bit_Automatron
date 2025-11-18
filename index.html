@@ -626,72 +626,75 @@ function eraseRectArea(x, y, width, height){
 
 function drawShape(start, end, mode, shouldFill){
   if (!start || !end) return;
-  ctx.save();
-  ctx.lineWidth = Math.max(1, penSize);
-  ctx.lineJoin = 'miter';
-  ctx.lineCap = 'butt';
-
-  if (eraserMode && transparentToggle.checked) {
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.strokeStyle = '#000000';
-    ctx.fillStyle = '#000000';
-  } else {
-    const brushColor = eraserMode ? bgColorInput.value : penColor;
-    ctx.strokeStyle = brushColor;
-    ctx.fillStyle = brushColor;
-  }
+  const size = Math.max(1, penSize);
 
   const samePoint = start.x === end.x && start.y === end.y;
   if (samePoint) {
     if (eraserMode) {
-      eraseRectArea(start.x, start.y, penSize, penSize);
-    } else if (shouldFill) {
-      ctx.fillRect(start.x, start.y, penSize, penSize);
+      eraseRectArea(start.x, start.y, size, size);
     } else {
-      ctx.beginPath();
-      ctx.rect(start.x, start.y, penSize, penSize);
-      ctx.stroke();
+      ctx.fillStyle = penColor;
+      ctx.fillRect(start.x, start.y, size, size);
     }
-    ctx.restore();
     return;
   }
 
   const bounds = {
     left: Math.min(start.x, end.x),
     top: Math.min(start.y, end.y),
-    width: Math.max(Math.abs(end.x - start.x), 1),
-    height: Math.max(Math.abs(end.y - start.y), 1)
+    width: Math.max(Math.abs(end.x - start.x), 0) + size,
+    height: Math.max(Math.abs(end.y - start.y), 0) + size
   };
 
-  ctx.beginPath();
+  const path = new Path2D();
   switch (mode) {
     case 'circle': {
-      const radiusX = bounds.width / 2;
-      const radiusY = bounds.height / 2;
+      const radiusX = Math.max(size / 2, bounds.width / 2);
+      const radiusY = Math.max(size / 2, bounds.height / 2);
       const centerX = bounds.left + radiusX;
       const centerY = bounds.top + radiusY;
-      ctx.ellipse(centerX, centerY, Math.max(1, radiusX), Math.max(1, radiusY), 0, 0, Math.PI * 2);
+      path.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, Math.PI * 2);
       break;
     }
     case 'triangle': {
       const apexX = bounds.left + bounds.width / 2;
-      ctx.moveTo(apexX, bounds.top);
-      ctx.lineTo(bounds.left, bounds.top + bounds.height);
-      ctx.lineTo(bounds.left + bounds.width, bounds.top + bounds.height);
-      ctx.closePath();
+      path.moveTo(apexX, bounds.top);
+      path.lineTo(bounds.left, bounds.top + bounds.height);
+      path.lineTo(bounds.left + bounds.width, bounds.top + bounds.height);
+      path.closePath();
       break;
     }
     case 'rectangle':
     default:
-      ctx.rect(bounds.left, bounds.top, bounds.width, bounds.height);
+      path.rect(bounds.left, bounds.top, bounds.width, bounds.height);
       break;
   }
 
-  if (shouldFill) {
-    ctx.fill();
-  } else {
-    ctx.stroke();
+  ctx.save();
+  ctx.lineWidth = size;
+  ctx.lineJoin = 'miter';
+  ctx.lineCap = 'butt';
+
+  const xEnd = bounds.left + bounds.width;
+  const yEnd = bounds.top + bounds.height;
+
+  for (let y = bounds.top; y < yEnd; y += size) {
+    for (let x = bounds.left; x < xEnd; x += size) {
+      const centerX = x + size / 2;
+      const centerY = y + size / 2;
+      const matchesShape = shouldFill
+        ? ctx.isPointInPath(path, centerX, centerY)
+        : ctx.isPointInStroke(path, centerX, centerY);
+      if (!matchesShape) continue;
+      if (eraserMode) {
+        eraseRectArea(x, y, size, size);
+      } else {
+        ctx.fillStyle = penColor;
+        ctx.fillRect(x, y, size, size);
+      }
+    }
   }
+
   ctx.restore();
 }
 
