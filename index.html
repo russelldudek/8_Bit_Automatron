@@ -307,14 +307,12 @@
   <div class="control">Background:
     <div id="bgSwatch" class="swatch" style="background:#000000; margin-left:6px;"></div>
     <input type="hidden" id="bgColorInput" value="#000000">
-    <input type="color" id="bgColorPicker" value="#000000" title="Background color" style="margin-left:8px;">
     <label style="margin-left:8px;"><input type="checkbox" id="transparentBg" checked> Transparent</label>
   </div>
   <div class="control">Pen Size: <input id="penSize" type="number" value="4" min="1" max="20" style="width:4em;"></div>
   <div class="control">Pen Color:
     <div id="penSwatch" class="swatch" style="background:#ffffff; margin-left:6px;"></div>
     <input type="hidden" id="penColorInput" value="#ffffff">
-    <input type="color" id="penColorPicker" value="#ffffff" title="Pen color" style="margin-left:8px;">
   </div>
   <div class="control"><label><input type="checkbox" id="penEraser"> Eraser Mode</label></div>
 </div>
@@ -397,20 +395,45 @@ const pixelSizeInput = document.getElementById('pixelSize');
 const aspectSelect = document.getElementById('aspect');
 const bgSwatch = document.getElementById('bgSwatch');
 const bgColorInput = document.getElementById('bgColorInput');
-const bgColorPicker = document.getElementById('bgColorPicker');
 const transparentToggle = document.getElementById('transparentBg');
 const penSizeInput = document.getElementById('penSize');
 const penSwatch = document.getElementById('penSwatch');
 const penColorInput = document.getElementById('penColorInput');
-const penColorPicker = document.getElementById('penColorPicker');
 const penEraserToggle = document.getElementById('penEraser');
 const uploadBtn = document.getElementById('uploadBtn');
 const uploadInput = document.getElementById('uploadInput');
 const bitifyBtn = document.getElementById('bitifyBtn');
 const zoomInput = document.getElementById('zoomLevel');
+const fileNameInput = document.getElementById('fileNameInput');
+const colorPickerToolBtn = document.getElementById('colorPickerTool');
 const canvasContainer = document.getElementById('canvasContainer');
 const gridOverlayEl = document.getElementById('gridOverlay');
 const cursorOverlayEl = document.getElementById('cursorOverlay');
+const picker = document.getElementById('customColorPicker');
+const sv = document.getElementById('svSquare');
+const hue = document.getElementById('hueSlider');
+const svCursor = document.getElementById('svCursor');
+const hueCursor = document.getElementById('hueCursor');
+const customHex = document.getElementById('customHex');
+const rInput = document.getElementById('rInput');
+const gInput = document.getElementById('gInput');
+const bInput = document.getElementById('bInput');
+const previewSwatch = document.getElementById('previewSwatch');
+const historyRow = document.getElementById('historyRow');
+const applyColorBtn = document.getElementById('applyColor');
+const cancelColorBtn = document.getElementById('cancelColor');
+
+const svCtx = sv ? sv.getContext('2d') : null;
+const hueCtx = hue ? hue.getContext('2d') : null;
+
+if (sv) {
+  sv.width = sv.clientWidth;
+  sv.height = sv.clientHeight;
+}
+if (hue) {
+  hue.width = hue.clientWidth;
+  hue.height = hue.clientHeight;
+}
 
 let baseSize = 200;
 const maxSize = 1024;
@@ -429,6 +452,10 @@ let zoom = clamp(parseInt(zoomInput.value, 10) || 1, 1, 32);
 zoomInput.value = zoom;
 let cursorX = 0;
 let cursorY = 0;
+let pickColorMode = false;
+let historyColors = [];
+let hsv = {h: 0, s: 0, v: 1};
+let currentPickerTarget = null;
 
 function clamp(val,min,max){return Math.max(min,Math.min(max,val));}
 
@@ -502,12 +529,15 @@ function applyZoom(){
 
 function updateOverlaySizing(){
   if (gridOverlayEl) {
-    const size = penSize * zoom;
-    gridOverlayEl.style.backgroundSize = `${size}px ${size}px`;
+    const size = Math.max(1, penSize) * zoom;
+    const value = `${size}px ${size}px`;
+    gridOverlayEl.style.backgroundSize = `${value}, ${value}`;
+    gridOverlayEl.style.backgroundPosition = '0px 0px, 0px 0px';
   }
   if (cursorOverlayEl) {
-    cursorOverlayEl.style.width = (penSize * zoom) + 'px';
-    cursorOverlayEl.style.height = (penSize * zoom) + 'px';
+    const cursorSize = Math.max(1, penSize) * zoom;
+    cursorOverlayEl.style.width = cursorSize + 'px';
+    cursorOverlayEl.style.height = cursorSize + 'px';
   }
   updateCursorOverlayPosition();
 }
@@ -557,6 +587,27 @@ function updateCanvasBackground(){
 
 transparentToggle.addEventListener('change', updateCanvasBackground);
 
+function applyColorToTarget(targetKey, color, options = {}) {
+  const normalized = normalizeHex(color);
+  const rememberHistory = options.rememberHistory !== false;
+
+  if (targetKey === 'bg') {
+    bgColorInput.value = normalized;
+    if (bgSwatch) bgSwatch.style.backgroundColor = normalized;
+    updateCanvasBackground();
+  } else if (targetKey === 'pen') {
+    penColorInput.value = normalized;
+    penColor = normalized;
+    if (penSwatch) penSwatch.style.backgroundColor = normalized;
+  } else {
+    return;
+  }
+
+  if (rememberHistory) {
+    pushHistory(normalized);
+  }
+}
+
 function setPenSize(value){
   let v = parseInt(value,10);
   if (isNaN(v) || v < 1) v = 1;
@@ -574,16 +625,6 @@ penSizeInput.addEventListener('change', e => {
 penSizeInput.addEventListener('input', e => {
   setPenSize(e.target.value);
 });
-
-bgColorPicker.addEventListener('input', () => {
-  applyColorToTarget('bg', bgColorPicker.value, { rememberHistory: false });
-});
-bgColorPicker.addEventListener('change', () => pushHistory(bgColorPicker.value));
-
-penColorPicker.addEventListener('input', () => {
-  applyColorToTarget('pen', penColorPicker.value, { rememberHistory: false });
-});
-penColorPicker.addEventListener('change', () => pushHistory(penColorPicker.value));
 
 function saveState(){
   historyStack.push(canvas.toDataURL());
@@ -668,7 +709,9 @@ function paintFromEvent(e){
 
 function setPickColorMode(active){
   pickColorMode = active;
-  colorPickerToolBtn.classList.toggle('active', active);
+  if (colorPickerToolBtn) {
+    colorPickerToolBtn.classList.toggle('active', active);
+  }
   canvas.style.cursor = active ? 'copy' : 'crosshair';
 }
 
@@ -858,9 +901,11 @@ bitifyBtn.addEventListener('click', () => {
   eightBitifyCanvas();
 });
 
-colorPickerToolBtn.addEventListener('click', () => {
-  setPickColorMode(!pickColorMode);
-});
+if (colorPickerToolBtn) {
+  colorPickerToolBtn.addEventListener('click', () => {
+    setPickColorMode(!pickColorMode);
+  });
+}
 
 window.addEventListener('keydown', e => {
   if (e.key === 'Escape' && pickColorMode) {
@@ -916,6 +961,7 @@ function RGBtoHex(r,g,b){
 }
 
 function drawHue(){
+  if (!hueCtx || !hue) return;
   const grad = hueCtx.createLinearGradient(0,0,0,hue.height);
   grad.addColorStop(0,'#f00');
   grad.addColorStop(0.17,'#ff0');
@@ -929,6 +975,7 @@ function drawHue(){
 }
 
 function drawSV(){
+  if (!svCtx || !sv) return;
   const rgb = HSVtoRGB(hsv.h,1,1);
   let gradX = svCtx.createLinearGradient(0,0,sv.width,0);
   gradX.addColorStop(0,'#ffffff');
@@ -946,26 +993,31 @@ function drawSV(){
 function updatePickerFields(){
   const rgb = HSVtoRGB(hsv.h,hsv.s,hsv.v);
   const hex = RGBtoHex(rgb.r,rgb.g,rgb.b);
-  customHex.value = hex;
-  rInput.value = rgb.r;
-  gInput.value = rgb.g;
-  bInput.value = rgb.b;
+  if (customHex) customHex.value = hex;
+  if (rInput) rInput.value = rgb.r;
+  if (gInput) gInput.value = rgb.g;
+  if (bInput) bInput.value = rgb.b;
   updatePreviewSwatch(hex);
 
   // cursor positions
-  const x = clamp(hsv.s * sv.width, 0, sv.width);
-  const y = clamp((1 - hsv.v) * sv.height, 0, sv.height);
-  svCursor.style.left = x + 'px';
-  svCursor.style.top  = y + 'px';
-  svCursor.style.display = 'block';
+  if (svCursor && sv) {
+    const x = clamp(hsv.s * sv.width, 0, sv.width);
+    const y = clamp((1 - hsv.v) * sv.height, 0, sv.height);
+    svCursor.style.left = x + 'px';
+    svCursor.style.top  = y + 'px';
+    svCursor.style.display = 'block';
+  }
 
-  const hy = clamp(hsv.h * hue.height, 0, hue.height);
-  hueCursor.style.left = (hue.width / 2) + 'px';
-  hueCursor.style.top  = hy + 'px';
-  hueCursor.style.display = 'block';
+  if (hueCursor && hue) {
+    const hy = clamp(hsv.h * hue.height, 0, hue.height);
+    hueCursor.style.left = (hue.width / 2) + 'px';
+    hueCursor.style.top  = hy + 'px';
+    hueCursor.style.display = 'block';
+  }
 }
 
 function openPicker(targetKey, swatch){
+  if (!picker || !swatch) return;
   setPickColorMode(false);
   currentPickerTarget = targetKey; // 'bg' or 'pen'
   const rect = swatch.getBoundingClientRect();
@@ -983,7 +1035,9 @@ function openPicker(targetKey, swatch){
 }
 
 function closePicker(){
-  picker.style.display = 'none';
+  if (picker) {
+    picker.style.display = 'none';
+  }
   currentPickerTarget = null;
 }
 
@@ -993,11 +1047,13 @@ function currentHSVHex(){
 }
 
 function updatePreviewSwatch(hex = currentHSVHex()){
+  if (!previewSwatch) return;
   previewSwatch.style.backgroundColor = hex;
   previewSwatch.title = `Apply ${hex}`;
 }
 
 function setHSVFromSVEvent(e){
+  if (!sv) return;
   const rect = sv.getBoundingClientRect();
   let x = clamp((e.clientX - rect.left) / rect.width, 0, 1);
   let y = clamp((e.clientY - rect.top) / rect.height, 0, 1);
@@ -1008,6 +1064,7 @@ function setHSVFromSVEvent(e){
 }
 
 function setHSVFromHueEvent(e){
+  if (!hue) return;
   const rect = hue.getBoundingClientRect();
   let y = clamp((e.clientY - rect.top) / rect.height, 0, 1);
   hsv.h = y;
@@ -1016,36 +1073,42 @@ function setHSVFromHueEvent(e){
   updatePickerFields();
 }
 
-sv.addEventListener('mousedown', e => {
-  setHSVFromSVEvent(e);
-  function move(ev){ setHSVFromSVEvent(ev); }
-  function up(){ window.removeEventListener('mousemove',move); window.removeEventListener('mouseup',up); }
-  window.addEventListener('mousemove',move);
-  window.addEventListener('mouseup',up);
-});
+if (sv) {
+  sv.addEventListener('mousedown', e => {
+    setHSVFromSVEvent(e);
+    function move(ev){ setHSVFromSVEvent(ev); }
+    function up(){ window.removeEventListener('mousemove',move); window.removeEventListener('mouseup',up); }
+    window.addEventListener('mousemove',move);
+    window.addEventListener('mouseup',up);
+  });
+}
 
-hue.addEventListener('mousedown', e => {
-  setHSVFromHueEvent(e);
-  function move(ev){ setHSVFromHueEvent(ev); }
-  function up(){ window.removeEventListener('mousemove',move); window.removeEventListener('mouseup',up); }
-  window.addEventListener('mousemove',move);
-  window.addEventListener('mouseup',up);
-});
+if (hue) {
+  hue.addEventListener('mousedown', e => {
+    setHSVFromHueEvent(e);
+    function move(ev){ setHSVFromHueEvent(ev); }
+    function up(){ window.removeEventListener('mousemove',move); window.removeEventListener('mouseup',up); }
+    window.addEventListener('mousemove',move);
+    window.addEventListener('mouseup',up);
+  });
+}
 
 // Hex and RGB field sync
-customHex.addEventListener('input', () => {
-  let v = customHex.value.trim();
-  if (!v.startsWith('#')) v = '#' + v;
-  if (/^#([0-9A-Fa-f]{6})$/.test(v)){
-    const rgb = hexToRGB(v);
-    hsv = RGBtoHSV(rgb.r,rgb.g,rgb.b);
-    drawHue();
-    drawSV();
-    updatePickerFields();
-  }
-});
+if (customHex) {
+  customHex.addEventListener('input', () => {
+    let v = customHex.value.trim();
+    if (!v.startsWith('#')) v = '#' + v;
+    if (/^#([0-9A-Fa-f]{6})$/.test(v)){
+      const rgb = hexToRGB(v);
+      hsv = RGBtoHSV(rgb.r,rgb.g,rgb.b);
+      drawHue();
+      drawSV();
+      updatePickerFields();
+    }
+  });
+}
 
-[rInput,gInput,bInput].forEach(inp => {
+[rInput,gInput,bInput].filter(Boolean).forEach(inp => {
   inp.addEventListener('change', () => {
     const r = parseInt(rInput.value,10)||0;
     const g = parseInt(gInput.value,10)||0;
@@ -1059,6 +1122,7 @@ customHex.addEventListener('input', () => {
 
 // History
 function pushHistory(color){
+  if (!historyRow) return;
   const normalized = normalizeHex(color);
   historyColors = historyColors.filter(c => c !== normalized);
   historyColors.unshift(normalized);
@@ -1086,13 +1150,23 @@ function applySelectedColor(){
   closePicker();
 }
 
-applyColor.addEventListener('click', applySelectedColor);
-previewSwatch.addEventListener('click', applySelectedColor);
+if (applyColorBtn) {
+  applyColorBtn.addEventListener('click', applySelectedColor);
+}
+if (previewSwatch) {
+  previewSwatch.addEventListener('click', applySelectedColor);
+}
 
-cancelColor.addEventListener('click', closePicker);
+if (cancelColorBtn) {
+  cancelColorBtn.addEventListener('click', closePicker);
+}
 
-bgSwatch.addEventListener('click', () => openPicker('bg', bgSwatch));
-penSwatch.addEventListener('click', () => openPicker('pen', penSwatch));
+if (bgSwatch) {
+  bgSwatch.addEventListener('click', () => openPicker('bg', bgSwatch));
+}
+if (penSwatch) {
+  penSwatch.addEventListener('click', () => openPicker('pen', penSwatch));
+}
 
 // ============
 // Initialization
