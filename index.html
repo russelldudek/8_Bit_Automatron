@@ -245,9 +245,15 @@
       <option value="pen">Freehand</option>
       <option value="rectangle">Rectangle</option>
       <option value="circle">Circle</option>
+      <option value="diamond">Diamond</option>
       <option value="triangle">Triangle</option>
     </select>
     <label style="margin-left:8px;"><input type="checkbox" id="shapeFillToggle" checked> Fill Shapes</label>
+  </div>
+  <div class="control" id="triangleApexControl" style="display:none;">
+    Triangle Apex:
+    <input type="range" id="triangleApexSlider" min="-50" max="50" value="0" style="width:140px;">
+    <span id="triangleApexLabel" style="margin-left:6px;">Centered</span>
   </div>
   </div>
 </div>
@@ -304,6 +310,9 @@ const zoomInput = document.getElementById('zoomLevel');
 const fileNameInput = document.getElementById('fileNameInput');
 const drawingModeSelect = document.getElementById('drawingMode');
 const shapeFillToggle = document.getElementById('shapeFillToggle');
+const triangleApexControl = document.getElementById('triangleApexControl');
+const triangleApexSlider = document.getElementById('triangleApexSlider');
+const triangleApexLabel = document.getElementById('triangleApexLabel');
 const canvasContainer = document.getElementById('canvasContainer');
 const gridOverlayEl = document.getElementById('gridOverlay');
 const cursorOverlayEl = document.getElementById('cursorOverlay');
@@ -326,6 +335,7 @@ let cursorX = 0;
 let cursorY = 0;
 let drawingMode = drawingModeSelect ? drawingModeSelect.value : 'pen';
 let fillShapes = shapeFillToggle ? shapeFillToggle.checked : true;
+let triangleApexRatio = 0.5; // 0 is left, 0.5 center, 1 is right
 let shapeStart = null;
 let shapeCurrent = null;
 let shapeSnapshot = null;
@@ -334,13 +344,31 @@ let eraserMode = penEraserToggle ? penEraserToggle.checked : false;
 if (drawingModeSelect) {
   drawingModeSelect.addEventListener('change', e => {
     drawingMode = e.target.value;
+    updateTriangleApexVisibility();
   });
+  updateTriangleApexVisibility();
 }
 
 if (shapeFillToggle) {
   shapeFillToggle.addEventListener('change', e => {
     fillShapes = e.target.checked;
   });
+}
+
+if (triangleApexSlider) {
+  triangleApexSlider.addEventListener('input', e => {
+    const value = parseInt(e.target.value, 10);
+    const clamped = isNaN(value) ? 0 : clamp(value, -50, 50);
+    triangleApexRatio = 0.5 + (clamped / 100);
+    updateTriangleApexLabel(clamped);
+    if (drawing && drawingMode === 'triangle' && shapeSnapshot && shapeStart) {
+      ctx.putImageData(shapeSnapshot, 0, 0);
+      drawShape(shapeStart, shapeCurrent || shapeStart, drawingMode, fillShapes);
+    }
+  });
+  const initialValue = parseInt(triangleApexSlider.value, 10) || 0;
+  triangleApexRatio = 0.5 + (initialValue / 100);
+  updateTriangleApexLabel(initialValue);
 }
 
 if (penEraserToggle) {
@@ -351,6 +379,21 @@ if (penEraserToggle) {
 }
 
 function clamp(val,min,max){return Math.max(min,Math.min(max,val));}
+
+function updateTriangleApexVisibility(){
+  if (!triangleApexControl) return;
+  triangleApexControl.style.display = drawingMode === 'triangle' ? 'flex' : 'none';
+}
+
+function updateTriangleApexLabel(value){
+  if (!triangleApexLabel) return;
+  let descriptor = 'Centered';
+  if (value <= -40) descriptor = 'Far Left';
+  else if (value <= -10) descriptor = 'Left';
+  else if (value >= 40) descriptor = 'Far Right';
+  else if (value >= 10) descriptor = 'Right';
+  triangleApexLabel.textContent = descriptor;
+}
 
 function normalizeHex(hex){
   if (typeof hex !== 'string') return '#000000';
@@ -643,6 +686,7 @@ function drawShape(start, end, mode, shouldFill){
   };
 
   const path = new Path2D();
+  const samplingBounds = { ...bounds };
   switch (mode) {
     case 'circle': {
       const radiusX = Math.max(size / 2, bounds.width / 2);
@@ -652,12 +696,29 @@ function drawShape(start, end, mode, shouldFill){
       path.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, Math.PI * 2);
       break;
     }
-    case 'triangle': {
-      const apexX = bounds.left + bounds.width / 2;
-      path.moveTo(apexX, bounds.top);
-      path.lineTo(bounds.left, bounds.top + bounds.height);
-      path.lineTo(bounds.left + bounds.width, bounds.top + bounds.height);
+    case 'diamond': {
+      const midX = bounds.left + bounds.width / 2;
+      const midY = bounds.top + bounds.height / 2;
+      path.moveTo(midX, bounds.top);
+      path.lineTo(bounds.left + bounds.width, midY);
+      path.lineTo(midX, bounds.top + bounds.height);
+      path.lineTo(bounds.left, midY);
       path.closePath();
+      break;
+    }
+    case 'triangle': {
+      const baseLeft = bounds.left;
+      const baseRight = bounds.left + bounds.width;
+      const baseBottom = bounds.top + bounds.height;
+      const apexX = baseLeft + bounds.width * triangleApexRatio;
+      path.moveTo(apexX, bounds.top);
+      path.lineTo(baseLeft, baseBottom);
+      path.lineTo(baseRight, baseBottom);
+      path.closePath();
+      const minX = Math.max(0, Math.min(baseLeft, baseRight, apexX));
+      const maxX = Math.min(canvas.width, Math.max(baseLeft, baseRight, apexX));
+      samplingBounds.left = minX;
+      samplingBounds.width = Math.max(maxX - minX, size) + size;
       break;
     }
     case 'rectangle':
@@ -671,11 +732,11 @@ function drawShape(start, end, mode, shouldFill){
   ctx.lineJoin = 'miter';
   ctx.lineCap = 'butt';
 
-  const xEnd = bounds.left + bounds.width;
-  const yEnd = bounds.top + bounds.height;
+  const xEnd = samplingBounds.left + samplingBounds.width;
+  const yEnd = samplingBounds.top + samplingBounds.height;
 
-  for (let y = bounds.top; y < yEnd; y += size) {
-    for (let x = bounds.left; x < xEnd; x += size) {
+  for (let y = samplingBounds.top; y < yEnd; y += size) {
+    for (let x = samplingBounds.left; x < xEnd; x += size) {
       const centerX = x + size / 2;
       const centerY = y + size / 2;
       const matchesShape = shouldFill
