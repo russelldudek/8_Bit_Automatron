@@ -618,8 +618,8 @@ function renderImageToCanvas(img){
 }
 
 function quantizeChannel(v){
-  const step = 85; // 4 levels (0, 85, 170, 255)
-  return Math.max(0, Math.min(255, Math.round(v / step) * step));
+  const clamped = clamp(v, 0, 255);
+  return clamped < 128 ? 0 : 255;
 }
 
 function eightBitifyCanvas(){
