@@ -86,10 +86,12 @@
     border-color:#4af;
   }
 
-  .swatch {
-    width:36px;
-    height:24px;
-    border:1px solid #444;
+  .color-input {
+    margin-left:6px;
+    height:28px;
+    width:60px;
+    border:none;
+    background:transparent;
     cursor:pointer;
   }
 
@@ -161,47 +163,6 @@
     background:rgba(0,255,255,0.12);
   }
 
-  /* Color picker */
-  #customColorPicker {
-    position:fixed;
-    background:#333;
-    padding:12px;
-    border:1px solid #666;
-    border-radius:6px;
-    display:none;
-    z-index:10;
-  }
-  #svSquare { width:200px; height:200px; cursor:pointer; }
-  #hueSlider { width:20px; height:200px; cursor:pointer; margin-left:10px; }
-  #opacitySlider { width:200px; margin-top:8px; }
-  #svCursor {
-    position:absolute;
-    width:10px;
-    height:10px;
-    border:2px solid #fff;
-    border-radius:50%;
-    pointer-events:none;
-    transform:translate(-5px,-5px);
-  }
-  #hueCursor {
-    position:absolute;
-    width:26px;
-    height:4px;
-    background:#fff;
-    pointer-events:none;
-    transform:translateX(-3px);
-  }
-  #pickerButtons { display:flex; gap:10px; margin-top:10px; }
-  #previewContainer { display:flex; align-items:center; gap:8px; margin-top:8px; }
-  #previewContainer span { font-size:0.85rem; color:#ccc; }
-  #previewSwatch { width:36px; height:24px; border:2px solid #888; cursor:pointer; }
-  #historyRow { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
-  .historySwatch {
-    width:24px;
-    height:24px;
-    border:1px solid #666;
-    cursor:pointer;
-  }
 
   @media (max-width: 900px) {
     body {
@@ -252,40 +213,6 @@
       padding:0 12px;
     }
 
-    #customColorPicker {
-      width:calc(100% - 24px);
-      max-width:360px;
-    }
-
-    #customColorPicker > div:first-child {
-      flex-direction:column;
-      align-items:center;
-      gap:12px;
-    }
-
-    #svSquare,
-    #opacitySlider {
-      width:100%;
-      max-width:260px;
-    }
-
-    #hueSlider {
-      margin-left:0;
-      margin-top:10px;
-    }
-
-    #hueCursor {
-      transform:translateX(-3px);
-    }
-
-    #pickerButtons {
-      flex-direction:column;
-      width:100%;
-    }
-
-    #pickerButtons .button-control {
-      width:100%;
-    }
   }
 </style>
 </head>
@@ -305,14 +232,12 @@
   </div>
   <div class="control">Zoom: <input type="number" id="zoomLevel" value="4" min="1" max="32" style="width:4em;"></div>
   <div class="control">Background:
-    <div id="bgSwatch" class="swatch" style="background:#000000; margin-left:6px;"></div>
-    <input type="hidden" id="bgColorInput" value="#000000">
+    <input type="color" id="bgColorInput" class="color-input" value="#000000">
     <label style="margin-left:8px;"><input type="checkbox" id="transparentBg" checked> Transparent</label>
   </div>
   <div class="control">Pen Size: <input id="penSize" type="number" value="4" min="1" max="20" style="width:4em;"></div>
   <div class="control">Pen Color:
-    <div id="penSwatch" class="swatch" style="background:#ffffff; margin-left:6px;"></div>
-    <input type="hidden" id="penColorInput" value="#ffffff">
+    <input type="color" id="penColorInput" class="color-input" value="#ffffff">
   </div>
   <div class="control"><label><input type="checkbox" id="penEraser"> Eraser Mode</label></div>
 </div>
@@ -348,41 +273,6 @@
   <button id="zoomInBtn">+</button>
 </div>
 
-<!-- HSV Color Picker anchored under swatch -->
-<div id="customColorPicker">
-  <div style="display:flex; position:relative;">
-    <div style="position:relative;">
-      <canvas id="svSquare"></canvas>
-      <div id="svCursor"></div>
-    </div>
-    <div style="position:relative; margin-left:10px;">
-      <canvas id="hueSlider"></canvas>
-      <div id="hueCursor"></div>
-    </div>
-  </div>
-
-  <input type="range" id="opacitySlider" min="0" max="1" step="0.01" value="1">
-
-  <div style="margin-top:6px;">Hex: <input id="customHex" type="text" style="width:90px;"></div>
-  <div style="margin-top:6px;">
-    R:<input id="rInput" type="number" min="0" max="255" style="width:4em;">
-    G:<input id="gInput" type="number" min="0" max="255" style="width:4em;">
-    B:<input id="bInput" type="number" min="0" max="255" style="width:4em;">
-  </div>
-
-  <div id="previewContainer">
-    <span>Preview:</span>
-    <div id="previewSwatch"></div>
-  </div>
-
-  <div id="historyRow"></div>
-
-  <div id="pickerButtons">
-    <button id="applyColor" class="button-control" style="min-width:100px;">Apply</button>
-    <button id="cancelColor" class="button-control" style="min-width:100px;">Cancel</button>
-  </div>
-</div>
-
 <script>
 // =====================
 // Canvas + Drawing Core
@@ -393,11 +283,9 @@ ctx.imageSmoothingEnabled = false;
 
 const pixelSizeInput = document.getElementById('pixelSize');
 const aspectSelect = document.getElementById('aspect');
-const bgSwatch = document.getElementById('bgSwatch');
 const bgColorInput = document.getElementById('bgColorInput');
 const transparentToggle = document.getElementById('transparentBg');
 const penSizeInput = document.getElementById('penSize');
-const penSwatch = document.getElementById('penSwatch');
 const penColorInput = document.getElementById('penColorInput');
 const penEraserToggle = document.getElementById('penEraser');
 const uploadBtn = document.getElementById('uploadBtn');
@@ -409,32 +297,6 @@ const colorPickerToolBtn = document.getElementById('colorPickerTool');
 const canvasContainer = document.getElementById('canvasContainer');
 const gridOverlayEl = document.getElementById('gridOverlay');
 const cursorOverlayEl = document.getElementById('cursorOverlay');
-const picker = document.getElementById('customColorPicker');
-const sv = document.getElementById('svSquare');
-const hue = document.getElementById('hueSlider');
-const svCursor = document.getElementById('svCursor');
-const hueCursor = document.getElementById('hueCursor');
-const customHex = document.getElementById('customHex');
-const rInput = document.getElementById('rInput');
-const gInput = document.getElementById('gInput');
-const bInput = document.getElementById('bInput');
-const previewSwatch = document.getElementById('previewSwatch');
-const historyRow = document.getElementById('historyRow');
-const applyColorBtn = document.getElementById('applyColor');
-const cancelColorBtn = document.getElementById('cancelColor');
-
-const svCtx = sv ? sv.getContext('2d') : null;
-const hueCtx = hue ? hue.getContext('2d') : null;
-
-if (sv) {
-  sv.width = sv.clientWidth;
-  sv.height = sv.clientHeight;
-}
-if (hue) {
-  hue.width = hue.clientWidth;
-  hue.height = hue.clientHeight;
-}
-
 let baseSize = 200;
 const maxSize = 1024;
 let gridW = baseSize;
@@ -445,7 +307,7 @@ const maxZoom = 8;
 
 let drawing = false;
 let penSize = 4;
-let penColor = '#ffffff';
+let penColor = penColorInput ? penColorInput.value : '#ffffff';
 let historyStack = [];
 let uploadedImage = null;
 let zoom = clamp(parseInt(zoomInput.value, 10) || 1, 1, 32);
@@ -453,9 +315,6 @@ zoomInput.value = zoom;
 let cursorX = 0;
 let cursorY = 0;
 let pickColorMode = false;
-let historyColors = [];
-let hsv = {h: 0, s: 0, v: 1};
-let currentPickerTarget = null;
 
 function clamp(val,min,max){return Math.max(min,Math.min(max,val));}
 
@@ -578,6 +437,7 @@ zoomInput.addEventListener('change', e => setZoomLevel(e.target.value));
 zoomInput.addEventListener('input', e => setZoomLevel(e.target.value));
 
 function updateCanvasBackground(){
+  if (!bgColorInput) return;
   if (transparentToggle.checked) {
     canvas.style.backgroundColor = 'transparent';
   } else {
@@ -587,24 +447,27 @@ function updateCanvasBackground(){
 
 transparentToggle.addEventListener('change', updateCanvasBackground);
 
-function applyColorToTarget(targetKey, color, options = {}) {
+if (bgColorInput) {
+  bgColorInput.addEventListener('input', e => applyColorToTarget('bg', e.target.value));
+}
+
+if (penColorInput) {
+  penColorInput.addEventListener('input', e => applyColorToTarget('pen', e.target.value));
+}
+
+function applyColorToTarget(targetKey, color) {
   const normalized = normalizeHex(color);
-  const rememberHistory = options.rememberHistory !== false;
 
   if (targetKey === 'bg') {
-    bgColorInput.value = normalized;
-    if (bgSwatch) bgSwatch.style.backgroundColor = normalized;
+    if (bgColorInput) {
+      bgColorInput.value = normalized;
+    }
     updateCanvasBackground();
   } else if (targetKey === 'pen') {
-    penColorInput.value = normalized;
+    if (penColorInput) {
+      penColorInput.value = normalized;
+    }
     penColor = normalized;
-    if (penSwatch) penSwatch.style.backgroundColor = normalized;
-  } else {
-    return;
-  }
-
-  if (rememberHistory) {
-    pushHistory(normalized);
   }
 }
 
@@ -913,36 +776,6 @@ window.addEventListener('keydown', e => {
   }
 });
 
-// ==========================
-// HSV Color Picker subsystem
-// ==========================
-
-function HSVtoRGB(h,s,v){
-  let f = n => {
-    let k = (n + h*6) % 6;
-    return v - v*s*Math.max(Math.min(k,4-k,1),0);
-  };
-  return {
-    r: Math.round(f(5)*255),
-    g: Math.round(f(3)*255),
-    b: Math.round(f(1)*255)
-  };
-}
-
-function RGBtoHSV(r,g,b){
-  r/=255; g/=255; b/=255;
-  const max = Math.max(r,g,b), min = Math.min(r,g,b);
-  const d = max-min;
-  let h;
-  const v = max;
-  const s = max === 0 ? 0 : d/max;
-  if (d === 0) h = 0;
-  else if (max === r) h = ((g-b)/d + (g<b?6:0))/6;
-  else if (max === g) h = ((b-r)/d + 2)/6;
-  else h = ((r-g)/d + 4)/6;
-  return {h,s,v};
-}
-
 function hexToRGB(hex){
   hex = hex.replace('#','');
   if (hex.length !== 6) return {r:255,g:255,b:255};
@@ -958,214 +791,6 @@ function RGBtoHex(r,g,b){
     const n = clamp(v,0,255)|0;
     return n.toString(16).padStart(2,'0');
   }).join('');
-}
-
-function drawHue(){
-  if (!hueCtx || !hue) return;
-  const grad = hueCtx.createLinearGradient(0,0,0,hue.height);
-  grad.addColorStop(0,'#f00');
-  grad.addColorStop(0.17,'#ff0');
-  grad.addColorStop(0.33,'#0f0');
-  grad.addColorStop(0.5,'#0ff');
-  grad.addColorStop(0.67,'#00f');
-  grad.addColorStop(0.83,'#f0f');
-  grad.addColorStop(1,'#f00');
-  hueCtx.fillStyle = grad;
-  hueCtx.fillRect(0,0,hue.width,hue.height);
-}
-
-function drawSV(){
-  if (!svCtx || !sv) return;
-  const rgb = HSVtoRGB(hsv.h,1,1);
-  let gradX = svCtx.createLinearGradient(0,0,sv.width,0);
-  gradX.addColorStop(0,'#ffffff');
-  gradX.addColorStop(1,`rgb(${rgb.r},${rgb.g},${rgb.b})`);
-  svCtx.fillStyle = gradX;
-  svCtx.fillRect(0,0,sv.width,sv.height);
-
-  let gradY = svCtx.createLinearGradient(0,0,0,sv.height);
-  gradY.addColorStop(0,'rgba(0,0,0,0)');
-  gradY.addColorStop(1,'#000000');
-  svCtx.fillStyle = gradY;
-  svCtx.fillRect(0,0,sv.width,sv.height);
-}
-
-function updatePickerFields(){
-  const rgb = HSVtoRGB(hsv.h,hsv.s,hsv.v);
-  const hex = RGBtoHex(rgb.r,rgb.g,rgb.b);
-  if (customHex) customHex.value = hex;
-  if (rInput) rInput.value = rgb.r;
-  if (gInput) gInput.value = rgb.g;
-  if (bInput) bInput.value = rgb.b;
-  updatePreviewSwatch(hex);
-
-  // cursor positions
-  if (svCursor && sv) {
-    const x = clamp(hsv.s * sv.width, 0, sv.width);
-    const y = clamp((1 - hsv.v) * sv.height, 0, sv.height);
-    svCursor.style.left = x + 'px';
-    svCursor.style.top  = y + 'px';
-    svCursor.style.display = 'block';
-  }
-
-  if (hueCursor && hue) {
-    const hy = clamp(hsv.h * hue.height, 0, hue.height);
-    hueCursor.style.left = (hue.width / 2) + 'px';
-    hueCursor.style.top  = hy + 'px';
-    hueCursor.style.display = 'block';
-  }
-}
-
-function openPicker(targetKey, swatch){
-  if (!picker || !swatch) return;
-  setPickColorMode(false);
-  currentPickerTarget = targetKey; // 'bg' or 'pen'
-  const rect = swatch.getBoundingClientRect();
-  picker.style.left = rect.left + 'px';
-  picker.style.top  = (rect.bottom + 4) + 'px';
-
-  picker.style.display = 'block';
-
-  const hex = targetKey === 'bg' ? bgColorInput.value : penColorInput.value;
-  const rgb = hexToRGB(hex);
-  hsv = RGBtoHSV(rgb.r,rgb.g,rgb.b);
-  drawHue();
-  drawSV();
-  updatePickerFields();
-}
-
-function closePicker(){
-  if (picker) {
-    picker.style.display = 'none';
-  }
-  currentPickerTarget = null;
-}
-
-function currentHSVHex(){
-  const rgb = HSVtoRGB(hsv.h,hsv.s,hsv.v);
-  return RGBtoHex(rgb.r,rgb.g,rgb.b);
-}
-
-function updatePreviewSwatch(hex = currentHSVHex()){
-  if (!previewSwatch) return;
-  previewSwatch.style.backgroundColor = hex;
-  previewSwatch.title = `Apply ${hex}`;
-}
-
-function setHSVFromSVEvent(e){
-  if (!sv) return;
-  const rect = sv.getBoundingClientRect();
-  let x = clamp((e.clientX - rect.left) / rect.width, 0, 1);
-  let y = clamp((e.clientY - rect.top) / rect.height, 0, 1);
-  hsv.s = x;
-  hsv.v = 1 - y;
-  drawSV();
-  updatePickerFields();
-}
-
-function setHSVFromHueEvent(e){
-  if (!hue) return;
-  const rect = hue.getBoundingClientRect();
-  let y = clamp((e.clientY - rect.top) / rect.height, 0, 1);
-  hsv.h = y;
-  drawHue();
-  drawSV();
-  updatePickerFields();
-}
-
-if (sv) {
-  sv.addEventListener('mousedown', e => {
-    setHSVFromSVEvent(e);
-    function move(ev){ setHSVFromSVEvent(ev); }
-    function up(){ window.removeEventListener('mousemove',move); window.removeEventListener('mouseup',up); }
-    window.addEventListener('mousemove',move);
-    window.addEventListener('mouseup',up);
-  });
-}
-
-if (hue) {
-  hue.addEventListener('mousedown', e => {
-    setHSVFromHueEvent(e);
-    function move(ev){ setHSVFromHueEvent(ev); }
-    function up(){ window.removeEventListener('mousemove',move); window.removeEventListener('mouseup',up); }
-    window.addEventListener('mousemove',move);
-    window.addEventListener('mouseup',up);
-  });
-}
-
-// Hex and RGB field sync
-if (customHex) {
-  customHex.addEventListener('input', () => {
-    let v = customHex.value.trim();
-    if (!v.startsWith('#')) v = '#' + v;
-    if (/^#([0-9A-Fa-f]{6})$/.test(v)){
-      const rgb = hexToRGB(v);
-      hsv = RGBtoHSV(rgb.r,rgb.g,rgb.b);
-      drawHue();
-      drawSV();
-      updatePickerFields();
-    }
-  });
-}
-
-[rInput,gInput,bInput].filter(Boolean).forEach(inp => {
-  inp.addEventListener('change', () => {
-    const r = parseInt(rInput.value,10)||0;
-    const g = parseInt(gInput.value,10)||0;
-    const b = parseInt(bInput.value,10)||0;
-    hsv = RGBtoHSV(r,g,b);
-    drawHue();
-    drawSV();
-    updatePickerFields();
-  });
-});
-
-// History
-function pushHistory(color){
-  if (!historyRow) return;
-  const normalized = normalizeHex(color);
-  historyColors = historyColors.filter(c => c !== normalized);
-  historyColors.unshift(normalized);
-  if (historyColors.length > 8) historyColors.pop();
-  historyRow.innerHTML = '';
-  historyColors.forEach(col => {
-    const d = document.createElement('div');
-    d.className = 'historySwatch';
-    d.style.backgroundColor = col;
-    d.addEventListener('click', () => {
-      const rgb = hexToRGB(col);
-      hsv = RGBtoHSV(rgb.r,rgb.g,rgb.b);
-      drawHue();
-      drawSV();
-      updatePickerFields();
-    });
-    historyRow.appendChild(d);
-  });
-}
-
-function applySelectedColor(){
-  if (!currentPickerTarget) return;
-  const hex = currentHSVHex();
-  applyColorToTarget(currentPickerTarget, hex);
-  closePicker();
-}
-
-if (applyColorBtn) {
-  applyColorBtn.addEventListener('click', applySelectedColor);
-}
-if (previewSwatch) {
-  previewSwatch.addEventListener('click', applySelectedColor);
-}
-
-if (cancelColorBtn) {
-  cancelColorBtn.addEventListener('click', closePicker);
-}
-
-if (bgSwatch) {
-  bgSwatch.addEventListener('click', () => openPicker('bg', bgSwatch));
-}
-if (penSwatch) {
-  penSwatch.addEventListener('click', () => openPicker('pen', penSwatch));
 }
 
 // ============
