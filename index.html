@@ -81,12 +81,40 @@
   }
   .button-control:hover { background:#444; }
   .button-control:active { background:#0a0; border-color:#0f0; }
+  .button-control.active {
+    background:#225;
+    border-color:#4af;
+  }
 
   .swatch {
     width:36px;
     height:24px;
     border:1px solid #444;
     cursor:pointer;
+  }
+
+  #zoomControls {
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    gap:10px;
+    margin-bottom:16px;
+  }
+
+  #zoomControls button {
+    width:40px;
+    height:32px;
+    font-size:1.2rem;
+    cursor:pointer;
+    background:#333;
+    border:1px solid #555;
+    border-radius:4px;
+    color:#fff;
+  }
+
+  #zoomDisplay {
+    min-width:60px;
+    text-align:center;
   }
 
   #canvasWrapper {
@@ -164,7 +192,10 @@
     transform:translateX(-3px);
   }
   #pickerButtons { display:flex; gap:10px; margin-top:10px; }
-  #historyRow { display:flex; gap:6px; margin-top:8px; }
+  #previewContainer { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  #previewContainer span { font-size:0.85rem; color:#ccc; }
+  #previewSwatch { width:36px; height:24px; border:2px solid #888; cursor:pointer; }
+  #historyRow { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
   .historySwatch {
     width:24px;
     height:24px;
@@ -276,13 +307,16 @@
   <div class="control">Background:
     <div id="bgSwatch" class="swatch" style="background:#000000; margin-left:6px;"></div>
     <input type="hidden" id="bgColorInput" value="#000000">
+    <input type="color" id="bgColorPicker" value="#000000" title="Background color" style="margin-left:8px;">
     <label style="margin-left:8px;"><input type="checkbox" id="transparentBg" checked> Transparent</label>
   </div>
   <div class="control">Pen Size: <input id="penSize" type="number" value="4" min="1" max="20" style="width:4em;"></div>
   <div class="control">Pen Color:
     <div id="penSwatch" class="swatch" style="background:#ffffff; margin-left:6px;"></div>
     <input type="hidden" id="penColorInput" value="#ffffff">
+    <input type="color" id="penColorPicker" value="#ffffff" title="Pen color" style="margin-left:8px;">
   </div>
+  <div class="control"><label><input type="checkbox" id="penEraser"> Eraser Mode</label></div>
 </div>
 
 <div id="toolbar-bottom">
@@ -294,7 +328,11 @@
     <button id="uploadBtn" class="button-control">Upload PNG</button>
     <input type="file" id="uploadInput" accept="image/png" style="display:none;">
     <button id="bitifyBtn" class="button-control">8-Bitify</button>
+    <button id="colorPickerTool" class="button-control" title="Pick a color from the canvas">Pick Color</button>
     <button id="exportBtn" class="button-control">Export PNG</button>
+    <div class="control" style="min-width:200px;">
+      File Name: <input type="text" id="fileNameInput" value="design" style="margin-left:6px; width:120px;">
+    </div>
   </div>
 </div>
 
@@ -304,6 +342,12 @@
     <div id="gridOverlay"></div>
     <div id="cursorOverlay"></div>
   </div>
+</div>
+
+<div id="zoomControls">
+  <button id="zoomOutBtn">-</button>
+  <div id="zoomDisplay">100%</div>
+  <button id="zoomInBtn">+</button>
 </div>
 
 <!-- HSV Color Picker anchored under swatch -->
@@ -328,6 +372,11 @@
     B:<input id="bInput" type="number" min="0" max="255" style="width:4em;">
   </div>
 
+  <div id="previewContainer">
+    <span>Preview:</span>
+    <div id="previewSwatch"></div>
+  </div>
+
   <div id="historyRow"></div>
 
   <div id="pickerButtons">
@@ -348,10 +397,13 @@ const pixelSizeInput = document.getElementById('pixelSize');
 const aspectSelect = document.getElementById('aspect');
 const bgSwatch = document.getElementById('bgSwatch');
 const bgColorInput = document.getElementById('bgColorInput');
+const bgColorPicker = document.getElementById('bgColorPicker');
 const transparentToggle = document.getElementById('transparentBg');
 const penSizeInput = document.getElementById('penSize');
 const penSwatch = document.getElementById('penSwatch');
 const penColorInput = document.getElementById('penColorInput');
+const penColorPicker = document.getElementById('penColorPicker');
+const penEraserToggle = document.getElementById('penEraser');
 const uploadBtn = document.getElementById('uploadBtn');
 const uploadInput = document.getElementById('uploadInput');
 const bitifyBtn = document.getElementById('bitifyBtn');
@@ -364,6 +416,9 @@ let baseSize = 200;
 const maxSize = 1024;
 let gridW = baseSize;
 let gridH = baseSize;
+let zoomLevel = 1;
+const minZoom = 0.5;
+const maxZoom = 8;
 
 let drawing = false;
 let penSize = 4;
@@ -376,6 +431,20 @@ let cursorX = 0;
 let cursorY = 0;
 
 function clamp(val,min,max){return Math.max(min,Math.min(max,val));}
+
+function normalizeHex(hex){
+  if (typeof hex !== 'string') return '#000000';
+  let value = hex.trim();
+  if (!value) return '#000000';
+  if (value[0] === '#') value = value.slice(1);
+  if (/^[0-9a-f]{3}$/i.test(value)) {
+    value = value.split('').map(ch => ch + ch).join('');
+  }
+  if (!/^[0-9a-f]{6}$/i.test(value)) {
+    return '#000000';
+  }
+  return '#' + value.toLowerCase();
+}
 
 function clearCanvasContents(){
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -506,6 +575,16 @@ penSizeInput.addEventListener('input', e => {
   setPenSize(e.target.value);
 });
 
+bgColorPicker.addEventListener('input', () => {
+  applyColorToTarget('bg', bgColorPicker.value, { rememberHistory: false });
+});
+bgColorPicker.addEventListener('change', () => pushHistory(bgColorPicker.value));
+
+penColorPicker.addEventListener('input', () => {
+  applyColorToTarget('pen', penColorPicker.value, { rememberHistory: false });
+});
+penColorPicker.addEventListener('change', () => pushHistory(penColorPicker.value));
+
 function saveState(){
   historyStack.push(canvas.toDataURL());
   if (historyStack.length > 50) historyStack.shift();
@@ -587,7 +666,36 @@ function paintFromEvent(e){
   paintAtCoords(cursorX, cursorY);
 }
 
+function setPickColorMode(active){
+  pickColorMode = active;
+  colorPickerToolBtn.classList.toggle('active', active);
+  canvas.style.cursor = active ? 'copy' : 'crosshair';
+}
+
+function sampleCanvasColor(e){
+  if (canvas.width === 0 || canvas.height === 0) {
+    setPickColorMode(false);
+    return;
+  }
+  const {x,y} = canvasCoords(e);
+  const ix = clamp(Math.floor(x), 0, canvas.width - 1);
+  const iy = clamp(Math.floor(y), 0, canvas.height - 1);
+  const data = ctx.getImageData(ix, iy, 1, 1).data;
+  let hex;
+  if (data[3] === 0) {
+    hex = transparentToggle.checked ? penColor : bgColorInput.value;
+  } else {
+    hex = RGBtoHex(data[0], data[1], data[2]);
+  }
+  applyColorToTarget('pen', hex);
+  setPickColorMode(false);
+}
+
 canvas.addEventListener('mousedown', e => {
+  if (pickColorMode) {
+    sampleCanvasColor(e);
+    return;
+  }
   drawing = true;
   saveState();          // stroke-level undo
   paintFromEvent(e);
@@ -719,7 +827,9 @@ exportBtn.addEventListener('click', () => {
   }
   ectx.drawImage(canvas,0,0);
   const link = document.createElement('a');
-  link.download = 'design.png';
+  let name = fileNameInput.value.trim() || 'design';
+  if (!name.toLowerCase().endsWith('.png')) name += '.png';
+  link.download = name;
   link.href = exp.toDataURL('image/png');
   link.click();
 });
@@ -748,31 +858,19 @@ bitifyBtn.addEventListener('click', () => {
   eightBitifyCanvas();
 });
 
+colorPickerToolBtn.addEventListener('click', () => {
+  setPickColorMode(!pickColorMode);
+});
+
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && pickColorMode) {
+    setPickColorMode(false);
+  }
+});
+
 // ==========================
 // HSV Color Picker subsystem
 // ==========================
-const picker = document.getElementById('customColorPicker');
-const sv = document.getElementById('svSquare');
-const hue = document.getElementById('hueSlider');
-const svCtx = sv.getContext('2d');
-const hueCtx = hue.getContext('2d');
-const svCursor = document.getElementById('svCursor');
-const hueCursor = document.getElementById('hueCursor');
-const opacitySlider = document.getElementById('opacitySlider');
-const customHex = document.getElementById('customHex');
-const rInput = document.getElementById('rInput');
-const gInput = document.getElementById('gInput');
-const bInput = document.getElementById('bInput');
-const applyColor = document.getElementById('applyColor');
-const cancelColor = document.getElementById('cancelColor');
-const historyRow = document.getElementById('historyRow');
-
-sv.width = 200; sv.height = 200;
-hue.width = 20; hue.height = 200;
-
-let hsv = {h:0, s:1, v:1};
-let currentPickerTarget = null; // 'bg' or 'pen'
-let historyColors = [];
 
 function HSVtoRGB(h,s,v){
   let f = n => {
@@ -847,29 +945,34 @@ function drawSV(){
 
 function updatePickerFields(){
   const rgb = HSVtoRGB(hsv.h,hsv.s,hsv.v);
-  customHex.value = RGBtoHex(rgb.r,rgb.g,rgb.b);
+  const hex = RGBtoHex(rgb.r,rgb.g,rgb.b);
+  customHex.value = hex;
   rInput.value = rgb.r;
   gInput.value = rgb.g;
   bInput.value = rgb.b;
+  updatePreviewSwatch(hex);
 
   // cursor positions
-  const x = hsv.s * sv.width;
-  const y = (1 - hsv.v) * sv.height;
-  const svRect = sv.getBoundingClientRect();
-  svCursor.style.left = (svRect.left + x) + 'px';
-  svCursor.style.top  = (svRect.top + y) + 'px';
+  const x = clamp(hsv.s * sv.width, 0, sv.width);
+  const y = clamp((1 - hsv.v) * sv.height, 0, sv.height);
+  svCursor.style.left = x + 'px';
+  svCursor.style.top  = y + 'px';
+  svCursor.style.display = 'block';
 
-  const hy = hsv.h * hue.height;
-  const hueRect = hue.getBoundingClientRect();
-  hueCursor.style.left = (hueRect.left + hue.width/2) + 'px';
-  hueCursor.style.top  = (hueRect.top + hy) + 'px';
+  const hy = clamp(hsv.h * hue.height, 0, hue.height);
+  hueCursor.style.left = (hue.width / 2) + 'px';
+  hueCursor.style.top  = hy + 'px';
+  hueCursor.style.display = 'block';
 }
 
 function openPicker(targetKey, swatch){
+  setPickColorMode(false);
   currentPickerTarget = targetKey; // 'bg' or 'pen'
   const rect = swatch.getBoundingClientRect();
   picker.style.left = rect.left + 'px';
   picker.style.top  = (rect.bottom + 4) + 'px';
+
+  picker.style.display = 'block';
 
   const hex = targetKey === 'bg' ? bgColorInput.value : penColorInput.value;
   const rgb = hexToRGB(hex);
@@ -877,10 +980,22 @@ function openPicker(targetKey, swatch){
   drawHue();
   drawSV();
   updatePickerFields();
-  picker.style.display = 'block';
 }
 
-function closePicker(){ picker.style.display = 'none'; }
+function closePicker(){
+  picker.style.display = 'none';
+  currentPickerTarget = null;
+}
+
+function currentHSVHex(){
+  const rgb = HSVtoRGB(hsv.h,hsv.s,hsv.v);
+  return RGBtoHex(rgb.r,rgb.g,rgb.b);
+}
+
+function updatePreviewSwatch(hex = currentHSVHex()){
+  previewSwatch.style.backgroundColor = hex;
+  previewSwatch.title = `Apply ${hex}`;
+}
 
 function setHSVFromSVEvent(e){
   const rect = sv.getBoundingClientRect();
@@ -944,7 +1059,9 @@ customHex.addEventListener('input', () => {
 
 // History
 function pushHistory(color){
-  historyColors.unshift(color);
+  const normalized = normalizeHex(color);
+  historyColors = historyColors.filter(c => c !== normalized);
+  historyColors.unshift(normalized);
   if (historyColors.length > 8) historyColors.pop();
   historyRow.innerHTML = '';
   historyColors.forEach(col => {
@@ -962,21 +1079,15 @@ function pushHistory(color){
   });
 }
 
-applyColor.addEventListener('click', () => {
-  const rgb = HSVtoRGB(hsv.h,hsv.s,hsv.v);
-  const hex = RGBtoHex(rgb.r,rgb.g,rgb.b);
-  pushHistory(hex);
-  if (currentPickerTarget === 'bg'){
-    bgColorInput.value = hex;
-    bgSwatch.style.backgroundColor = hex;
-    updateCanvasBackground();
-  } else if (currentPickerTarget === 'pen'){
-    penColorInput.value = hex;
-    penSwatch.style.backgroundColor = hex;
-    penColor = hex;
-  }
+function applySelectedColor(){
+  if (!currentPickerTarget) return;
+  const hex = currentHSVHex();
+  applyColorToTarget(currentPickerTarget, hex);
   closePicker();
-});
+}
+
+applyColor.addEventListener('click', applySelectedColor);
+previewSwatch.addEventListener('click', applySelectedColor);
 
 cancelColor.addEventListener('click', closePicker);
 
